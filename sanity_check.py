@@ -7,13 +7,13 @@ import os
 from sklearn.cluster import KMeans
 
 def is_in_names(names, file_name):
-	"""	
-	"""
-	for name in names:
-		if name in file_name:
-			return True
+    """	
+    """
+    for name in names:
+        if name in file_name:
+            return True
 
-	return False
+    return False
 
 
 # Let's set up the names to check if we are right or wrong
@@ -31,7 +31,7 @@ for i, name in enumerate(file_names):
 	
 #	if i > 32:
 #		continue
-	imgs.append(IMG_DIRECTORY + name)  	
+    imgs.append(IMG_DIRECTORY + name)  	
 
 
 # for testing cpu seems just fine
@@ -56,47 +56,47 @@ final_layers = []
 imgs.sort(reverse=True)
 
 for img_file in imgs:
-	img = caffe.io.load_image(img_file)
-	print "shape of img is ", img.shape	
-        #img = caffe.io.resize_image(img, (224,224), interp_order=3)
-	#print "shape of resized img is ", img.shape
+    img = caffe.io.load_image(img_file)
+    print "shape of img is ", img.shape	
+    #img = caffe.io.resize_image(img, (224,224), interp_order=3)
+    #print "shape of resized img is ", img.shape
 
-	net.blobs['data'].data[...] = transformer.preprocess('data', img)
-	#print "shape of resized img is ", img.shape
+    net.blobs['data'].data[...] = transformer.preprocess('data', img)
+    #print "shape of resized img is ", img.shape
 
-	output = net.forward()
-	print "img file is ", img_file
+    output = net.forward()
+    print "img file is ", img_file
 
-	guess = int(output['prob'].argmax())
+    guess = int(output['prob'].argmax())
 
-	#print("guess is ", guess)
-	
-	#print("output['prob'].shape = ", output['prob'].shape)
-	#print("o['prob'][0].shape", output['prob'][0].shape)
+    #print("guess is ", guess)
+    
+    #print("output['prob'].shape = ", output['prob'].shape)
+    #print("o['prob'][0].shape", output['prob'][0].shape)
 
-	for k in output:
-		print k
+    for k in output:
+            print k
 
-	conf = output['prob'][0, guess]
-	print(output['prob'][0])
-        
-        print("name was ", names[guess], "confidence is ", conf)
+    conf = output['prob'][0, guess]
+    print(output['prob'][0])
+    
+    print("name was ", names[guess], "confidence is ", conf)
 
-	# Get middle activations
-	fc7 = net.blobs['fc7'].data
-        final_layers.append(fc7)
+    # Get middle activations
+    fc7 = net.blobs['fc7'].data
+    final_layers.append(fc7)
 
-	#print("shape of fc7 is ", fc7.shape)
-	
-	if is_in_names(names, img_file):
+    #print("shape of fc7 is ", fc7.shape)
+    
+    if is_in_names(names, img_file):
 
-		if names[guess] in img_file and conf >= 0.00040:
-			correct += 1
-	
-	else:	
-		if conf < 0.00040:
-			print("got a negative sample right!!!!")
-			correct += 1
+            if names[guess] in img_file and conf >= 0.00040:
+                    correct += 1
+    
+    else:	
+            if conf < 0.00040:
+                    print("got a negative sample right!!!!")
+                    correct += 1
 
 print("% of correct is ", float(correct) / len(imgs))
 
