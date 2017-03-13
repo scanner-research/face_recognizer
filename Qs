@@ -1,0 +1,7 @@
+
+  1. Resizing images - will this result in quality loss etc that is hard to
+  deal with?
+
+  2. Do the subtract mean - or instead do the centrepoint thing - for
+  preprocessing?
+

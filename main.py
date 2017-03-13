@@ -1,13 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
-#import caffe
+import caffe
 import os
 import pickle
 import hashlib
 
 from tsne import *
 from sklearn.cluster import KMeans
+
+# Note: If want to turn caffe output on/off then toggle GLOG_minloglevel
+# environment variable.
 
 # Arbitrarily chosen - because it seemed to be identifying people correctly
 # when the output was over this threshold, and wrong otherwise. Not sure why
@@ -16,10 +19,13 @@ from sklearn.cluster import KMeans
 THRESHOLD = 0.00040
 FEATURE_LAYER = 'fc8'
 CLUSTERS = 32
-PICKLE = False
+PICKLE = True
+
+# Use opencv to display images in same cluster (on local comp)
+DISP_IMGS = False
 
 # Change this appropriately
-IMG_DIRECTORY = './imgs/'
+IMG_DIRECTORY = './final_girl_imgs/'
 
 # caffe files
 model = 'VGG_FACE_deploy.prototxt';
@@ -84,7 +90,7 @@ def run_caffe(imgs, names):
     Main loop in which we use caffe to recognize / score each of the images
     ''' 
 
-    caffe.set_mode_gpu()
+    caffe.set_mode_cpu()
 
     net = caffe.Net(model, weights, caffe.TEST); 
 
@@ -134,9 +140,11 @@ def run_caffe(imgs, names):
             # recognized someone
             # add file_name to list of recogs etc
             recognized += 1
-            preds.append(names[guess])
+            name = names[guess] + '++'
         else:
-            preds.append('Unknown')
+            name = names[guess] + '--'
+
+        preds.append(name)
 
 
     print('recognized users = ', recognized, 'from total = ', len(imgs))
@@ -185,6 +193,19 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
         print('label is ', l)
         print(label_names[l])
 
+        # Let's use opencv to display imgs one by one here in this cluster
+        if DISP_IMGS:
+            for label in label_names[l]:
+
+                file_name = label[1]
+                # open the image with opencv
+                img = cv2.imread(file_name)
+                cv2.imshow('ImageWindow', img)
+                cv2.waitkey()
+
+                # wait for a keypress to go to next image
+
+
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
@@ -217,11 +238,19 @@ def main():
     imgs = load_img_files()
     
     all_feature_vectors, preds = test_imgs(imgs, names)
+
+    # sanity check
+    for i,f in enumerate(all_feature_vectors):
+        norm = np.linalg.norm(f)
+        # assert norm != 0, 'norm of features is 0'
+        if norm == 0:
+           print i
+           print f
     
     kmeans_clustering(all_feature_vectors, preds, names, imgs)
 
     # do tsne clustering now.
-    run_tsne(all_feature_vectors, preds, names, imgs)
+    # run_tsne(all_feature_vectors, preds, names, imgs)
 
 if __name__ == '__main__':
 
