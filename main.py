@@ -25,7 +25,7 @@ PICKLE = True
 DISP_IMGS = False
 
 # Change this appropriately
-IMG_DIRECTORY = './final_girl_imgs/'
+IMG_DIRECTORY = './twilight1_imgs/'
 
 # caffe files
 model = 'VGG_FACE_deploy.prototxt';
