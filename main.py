@@ -6,6 +6,7 @@ import os
 import pickle
 import hashlib
 
+from tsne import *
 from sklearn.cluster import KMeans
 
 # Arbitrarily chosen - because it seemed to be identifying people correctly
@@ -43,9 +44,41 @@ def load_img_files():
 
 def test_imgs(imgs, names):
     '''
+    Checks pickle for precomputed data, otherwise runs the caffe stuff on the
+    all images in imgs.
+    '''
+    
+    imgs.sort()
+
+    pickle_name = gen_pickle_name(imgs)
+    if os.path.isfile(pickle_name):  
+
+        with open(pickle_name, 'rb') as handle:
+            all_feature_vectors = pickle.load(handle)
+            preds = pickle.load(handle)
+            print("successfully loaded pickle file!")    
+
+        handle.close()
+
+        return all_feature_vectors, preds
+
+    else:
+        
+        all_feature_vectors, preds = run_caffe(imgs, names)
+        with open(pickle_name, 'w+') as handle:
+            pickle.dump(all_feature_vectors, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(preds, handle, protocol=pickle.HIGHEST_PROTOCOL)
+         
+        handle.close()
+        return all_feature_vectors, preds
+    
+
+def run_caffe(imgs, names):
+    '''
     Main loop in which we use caffe to recognize / score each of the images
     '''
 
+    
     caffe.set_mode_cpu()
 
     net = caffe.Net(model, weights, caffe.TEST); 
@@ -61,7 +94,11 @@ def test_imgs(imgs, names):
 
     for img_file in imgs:
 
-        img = caffe.io.load_image(img_file)
+        try:
+            img = caffe.io.load_image(img_file)
+        except IOError:
+            print("caught an IO error for file ", img_file)
+            continue
 
         # Can resize it here / or just run a separate preprocessing script that
         # resizes it.
@@ -106,7 +143,7 @@ def test_imgs(imgs, names):
 
 def gen_pickle_name(imgs):
     """
-    
+    Use hash of file names + which layer data we're storing. 
     """
     hashed_input = hashlib.sha1(str(imgs)).hexdigest()
     
@@ -116,29 +153,14 @@ def gen_pickle_name(imgs):
 
     return directory + name + ".pickle"
 
-def main():
+def kmeans_clustering(all_feature_vectors, preds, names, imgs):
+    '''
+    runs kmeans with mostly default values on all_feature_vectors - and then
+    prints out the names <--> labels combinations in the end.
 
-    names = load_names()
-    imgs = load_img_files()
-    
-    pickle_name = gen_pickle_name(imgs)
-    if os.path.isfile(pickle_name):  
-
-        with open(pickle_name, 'rb') as handle:
-            all_feature_vectors = pickle.load(handle)
-            preds = pickle.load(handle)
-            print("successfully loaded pickle file!")    
-
-        handle.close()
-
-    else:
-        
-        all_feature_vectors, preds = test_imgs(imgs, names)
-        with open(pickle_name, 'w+') as handle:
-            pickle.dump(all_feature_vectors, handle, protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump(preds, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        
-        handle.close()
+    Ideally, can then manually check if the faces clustered in the same label
+    belong to the same person or not.
+    '''
 
     kmeans = KMeans(n_clusters=CLUSTERS, random_state=0).fit(all_feature_vectors) 
 
@@ -158,6 +180,29 @@ def main():
         print('label is ', l)
         print(label_names[l])
 
+def run_tsne(all_feature_vectors, preds, names, imgs):
+    '''
+    '''
+    assert len(all_feature_vectors) == len(preds) == len(imgs), 'features and preds \
+            should be same length'
+
+    labels = imgs
+    Y = tsne(all_feature_vectors)
+
+    Plot.scatter(Y[:,0], Y[:,1], 20, labels);
+    Plot.show();
+    
+def main():
+
+    names = load_names()
+    imgs = load_img_files()
+    
+    all_feature_vectors, preds = test_imgs(imgs, names)
+    
+    kmeans_clustering(all_feature_vectors, preds, names, imgs)
+
+    # do tsne clustering now.
+    run_tsne(all_feature_vectors, preds, names, imgs)
 
 if __name__ == '__main__':
 
