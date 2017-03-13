@@ -33,8 +33,11 @@ y1= max(1,y1);
 x2= min(x2,size(img,2));
 y2= min(y2,size(img,1));
 
+% does the cropping
 img = img(y1:y2,x1:x2,:);
 sizeimg = size(img)
+
+% doesn't work to get newdim X newdim if width and height are different.
 img = imresize(img,(newdim/sizeimg(1)));
 
 disp(size(img));

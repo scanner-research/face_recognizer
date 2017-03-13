@@ -18,13 +18,14 @@ from sklearn.cluster import KMeans
 # when the output was over this threshold, and wrong otherwise. Not sure why
 # the values are so low - might have something to do with why it does not work
 # in gpu mode?
+
 THRESHOLD = 0.00040
 FEATURE_LAYER = 'fc8'
 CLUSTERS = 32
 PICKLE = True
 
 # Use opencv to display images in same cluster (on local comp)
-DISP_IMGS = True
+DISP_IMGS = False
 
 # Change this appropriately
 IMG_DIRECTORY = './final_girl_imgs/'
@@ -47,6 +48,10 @@ def load_img_files():
     imgs = []
 
     for i, name in enumerate(file_names):	
+
+        # this was just a tmp folder I was using for processed images
+        if 'proc' in name:
+            continue
         imgs.append(IMG_DIRECTORY + name)  	
 
     return imgs
@@ -156,6 +161,7 @@ def run_caffe(imgs, names):
     
     return all_feature_vectors, preds
 
+#FIXME: Combine these two functions
 def gen_pickle_name(imgs):
     """
     Use hash of file names + which layer data we're storing. 
@@ -163,6 +169,18 @@ def gen_pickle_name(imgs):
     hashed_input = hashlib.sha1(str(imgs)).hexdigest()
     
     name = hashed_input + '_' + FEATURE_LAYER
+
+    directory = "./pickle/"
+
+    return directory + name + ".pickle"
+
+def tsne_gen_pickle_name(features):
+    """
+    Use hash of file names + which layer data we're storing. 
+    """
+    hashed_input = hashlib.sha1(str(imgs)).hexdigest()
+    
+    name = hashed_input + '_' + 'tsne' 
 
     directory = "./pickle/"
 
@@ -214,28 +232,54 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
-    assert len(all_feature_vectors) == len(preds) == len(imgs), 'features and preds \
+    print("features = ", len(all_feature_vectors))
+    print("preds = ", len(preds))
+
+    # FIXME: extra imgs with final_girl?
+    # print("imgs = ", len(imgs))
+
+    assert len(all_feature_vectors) == len(preds), 'features and preds \
             should be same length'
 
     # Since we don't have correct labels - maybe we should just plot it without
     # labels - will just be the same color.
 
-    labels = range(len(imgs))
-    labels = np.array(labels)
+    # labels = range(len(imgs))
+    # labels = np.array(labels)
     
     # In Y, every feature is reduced to an x,y point.
-    Y = tsne(all_feature_vectors)
+
+    pickle_name = tsne_gen_pickle_name(all_feature_vectors)
+
+    if os.path.isfile(pickle_name) and TSNE_PICKLE:
+
+        with open(pickle_name, 'rb') as handle:
+            Y = pickle.load(handle)
+            print("successfully loaded pickle file!")    
+
+        handle.close()
+
+        return all_feature_vectors, preds
+
+    else:
+        
+        Y = tsne(all_feature_vectors)
+
+        if TSNE_PICKLE:
+            with open(pickle_name, 'w+') as handle:
+                pickle.dump(all_feature_vectors, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(preds, handle, protocol=pickle.HIGHEST_PROTOCOL)
+             
+            handle.close()
 
     # See if this is much different than direct kmeans
-    kmeans_clustering(Y, preds, names, imgs)
+    #kmeans_clustering(Y, preds, names, imgs)
 
-    # Visualizing this - if we knew the correct labels, then it would be
-    # perfect.
+    #FIXME: Better way to visualize this? 
 
-    # FIXME: Best way to visualize this?
-    # size = 20
-    # Plot.scatter(Y[:,0], Y[:,1], size, labels);
-    # Plot.show();
+    size = 20
+    Plot.scatter(Y[:,0], Y[:,1], size);
+    Plot.show();
     
 def main():
 
@@ -252,10 +296,10 @@ def main():
            print i
            print f
     
-    kmeans_clustering(all_feature_vectors, preds, names, imgs)
+    #kmeans_clustering(all_feature_vectors, preds, names, imgs)
 
     # do tsne clustering now.
-    # run_tsne(all_feature_vectors, preds, names, imgs)
+    run_tsne(all_feature_vectors, preds, names, imgs)
 
 if __name__ == '__main__':
 
