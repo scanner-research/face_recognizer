@@ -178,7 +178,7 @@ def tsne_gen_pickle_name(features):
     """
     Use hash of file names + which layer data we're storing. 
     """
-    hashed_input = hashlib.sha1(str(imgs)).hexdigest()
+    hashed_input = hashlib.sha1(str(features)).hexdigest()
     
     name = hashed_input + '_' + 'tsne' 
 
