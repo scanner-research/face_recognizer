@@ -17,7 +17,7 @@ FEATURE_LAYER = 'fc8'
 CLUSTERS = 32
 
 # Change this appropriately
-IMG_DIRECTORY = './final_girl_imgs/'
+IMG_DIRECTORY = './imgs/'
 
 # caffe files
 model = 'VGG_FACE_deploy.prototxt';
@@ -31,7 +31,7 @@ def load_names():
     f.close()
     return names
 
-def load_imgs():
+def load_img_files():
 
     file_names = os.listdir(IMG_DIRECTORY)
     imgs = []
@@ -110,7 +110,8 @@ def gen_pickle_name(imgs):
     """
     hashed_input = hashlib.sha1(str(imgs)).hexdigest()
     
-    name = hashed_input 
+    name = hashed_input + '_' + FEATURE_LAYER
+
     directory = "./pickle/"
 
     return directory + name + ".pickle"
@@ -118,6 +119,7 @@ def gen_pickle_name(imgs):
 def main():
 
     names = load_names()
+    imgs = load_img_files()
     
     pickle_name = gen_pickle_name(imgs)
     if os.path.isfile(pickle_name):  
