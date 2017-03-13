@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
-import caffe
+
+#import caffe
+
 import os
 import pickle
 import hashlib
@@ -22,7 +24,7 @@ CLUSTERS = 32
 PICKLE = True
 
 # Use opencv to display images in same cluster (on local comp)
-DISP_IMGS = False
+DISP_IMGS = True
 
 # Change this appropriately
 IMG_DIRECTORY = './final_girl_imgs/'
@@ -195,13 +197,16 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 
         # Let's use opencv to display imgs one by one here in this cluster
         if DISP_IMGS:
+            wait = raw_input("press anything to start this label")
             for label in label_names[l]:
-
+                
                 file_name = label[1]
                 # open the image with opencv
                 img = cv2.imread(file_name)
                 cv2.imshow('ImageWindow', img)
-                cv2.waitkey()
+                c = cv2.waitKey()
+                if c == 'q':
+                    break
 
                 # wait for a keypress to go to next image
 
