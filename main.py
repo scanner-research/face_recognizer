@@ -3,21 +3,17 @@ import matplotlib.pyplot as plt
 import cv2
 import caffe
 import os
+import pickle
 
 from sklearn.cluster import KMeans
 
+# Arbitrarily chosen - because it seemed to be identifying people correctly
+# when the output was over this threshold, and wrong otherwise. Not sure why
+# the values are so low - might have something to do with why it does not work
+# in gpu mode?
 THRESHOLD = 0.00040
 FEATURE_LAYER = 'fc8'
-
-def is_in_names(names, file_name):
-    '''	
-    '''
-    for name in names:
-        if name in file_name:
-            return True
-
-    return False
-
+CLUSTERS = 32
 
 # Let's set up the names to check if we are right or wrong
 f = open('./names.txt')
@@ -25,21 +21,18 @@ names = f.read()
 names = names.split('\n')
 f.close()
 
-#IMG_DIRECTORY = './imgs/'
-IMG_DIRECTORY = './imgs/'
+IMG_DIRECTORY = './final_girl_imgs/'
+
 file_names = os.listdir(IMG_DIRECTORY)
 imgs = []
 
-for i, name in enumerate(file_names):
-	
-#	if i > 32:
-#		continue
+for i, name in enumerate(file_names):	
     imgs.append(IMG_DIRECTORY + name)  	
 
 
 # for testing cpu seems just fine
 caffe.set_mode_cpu()
-#caffe.set_mode_gpu()
+# caffe.set_mode_gpu()
 
 
 model = 'VGG_FACE_deploy.prototxt';
@@ -53,6 +46,9 @@ transformer.set_channel_swap('data', (2,1,0))
 all_feature_vectors = []
 recognized = 0
 
+# List with name of recognized celebrity or 'unknown'
+preds = []
+
 # So the names are in order of same guys together (more or less..)
 imgs.sort(reverse=True)
 
@@ -62,11 +58,13 @@ for img_file in imgs:
     # Can resize it here / or just run a separate preprocessing script that
     # resizes it.
     img = caffe.io.resize_image(img, (224,224), interp_order=3)
+
     assert img.shape == (224, 224, 3), 'img shape is not 224x224'
 
     # Check this step - might want to do more pre-processing etc? 
     # Also maybe something going wrong in the GPU model here.
-    net.blobs['data'].data[...] = transformer.preprocess('data', img)
+    img_data = transformer.preprocess('data', img)
+    net.blobs['data'].data[...] = img_data
 
     output = net.forward()
 
@@ -86,22 +84,35 @@ for img_file in imgs:
         # recognized someone
         # add file_name to list of recogs etc
         recognized += 1
+        preds.append(names[guess])
+    else:
+        preds.append('Unknown')
 
 
-print("recognized users = ", recognized, "from total = ", len(imgs))
+print('recognized users = ', recognized, 'from total = ', len(imgs))
 # Use some sort of clustering on the final layer
 
 all_feature_vectors = np.array(all_feature_vectors)
-
-print("len all feature vectors = ", len(all_feature_vectors))
 
 # Sanity check - not required anymoe
 # for i, f in enumerate(all_feature_vectors):
     # print('norm of ', str(i),  'is ', np.linalg.norm(f))
 
-kmeans = KMeans(n_clusters=8, random_state=0).fit(all_feature_vectors) 
-print(len(kmeans.labels_))
-print(len(kmeans.labels_))
-print(kmeans.labels_)
-print(len(kmeans.cluster_centers_))
-print(kmeans.cluster_centers_)
+kmeans = KMeans(n_clusters=CLUSTERS, random_state=0).fit(all_feature_vectors) 
+
+label_names = {}
+for i, label in enumerate(kmeans.labels_):
+
+    predicted_name = preds[i]
+    file_name = imgs[i]
+
+    label = str(label)
+    if label not in label_names:
+        label_names[label] = []
+
+    label_names[label].append((predicted_name, file_name))
+
+for l in label_names:
+    print("label is ", l)
+    print(label_names[l])
+

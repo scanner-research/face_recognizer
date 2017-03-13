@@ -35,8 +35,8 @@ for i, name in enumerate(file_names):
 
 
 # for testing cpu seems just fine
-caffe.set_mode_cpu()
-#caffe.set_mode_gpu()
+# caffe.set_mode_cpu()
+caffe.set_mode_gpu()
 
 
 model = 'VGG_FACE_deploy.prototxt';
@@ -61,7 +61,7 @@ for img_file in imgs:
     #img = caffe.io.resize_image(img, (224,224), interp_order=3)
     #print "shape of resized img is ", img.shape
 
-    net.blobs['data'].data[...] = transformer.preprocess('data', img)
+    net.blobs['data'].data[...] = np.copy(transformer.preprocess('data', img))
     #print "shape of resized img is ", img.shape
 
     output = net.forward()
@@ -73,9 +73,6 @@ for img_file in imgs:
     
     #print("output['prob'].shape = ", output['prob'].shape)
     #print("o['prob'][0].shape", output['prob'][0].shape)
-
-    for k in output:
-            print k
 
     conf = output['prob'][0, guess]
     print(output['prob'][0])
