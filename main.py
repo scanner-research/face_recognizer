@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 
-#import caffe
+import caffe
 
 import os
 import pickle
@@ -23,12 +23,13 @@ THRESHOLD = 0.00040
 FEATURE_LAYER = 'fc8'
 CLUSTERS = 32
 PICKLE = True
+TSNE_PICKLE = True
 
 # Use opencv to display images in same cluster (on local comp)
 DISP_IMGS = False
 
 # Change this appropriately
-IMG_DIRECTORY = './twilight1_imgs/'
+IMG_DIRECTORY = './twilight1_proc/'
 
 # caffe files
 model = 'VGG_FACE_deploy.prototxt';
@@ -232,8 +233,6 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
-    print("features = ", len(all_feature_vectors))
-    print("preds = ", len(preds))
 
     # FIXME: extra imgs with final_girl?
     # print("imgs = ", len(imgs))
@@ -289,17 +288,22 @@ def main():
     all_feature_vectors, preds = test_imgs(imgs, names)
 
     # sanity check
+    zero_norm = 0
     for i,f in enumerate(all_feature_vectors):
         norm = np.linalg.norm(f)
         # assert norm != 0, 'norm of features is 0'
         if norm == 0:
-           print i
-           print f
+           zero_norm +=  1
+           # print i
+           # print f
     
-    #kmeans_clustering(all_feature_vectors, preds, names, imgs)
+    print("total feature vectors are = ", len(all_feature_vectors))
+    print("zero norms were = ", zero_norm)
+
+    kmeans_clustering(all_feature_vectors, preds, names, imgs)
 
     # do tsne clustering now.
-    run_tsne(all_feature_vectors, preds, names, imgs)
+    #run_tsne(all_feature_vectors, preds, names, imgs)
 
 if __name__ == '__main__':
 
