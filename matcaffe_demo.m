@@ -15,10 +15,8 @@ for i = 1: 100
     old_name = names{i};
     disp(old_name);
 
-    old_name = './imgs/aj';
-    img = imread(strcat(old_name, '.jpeg'));
-
     img = single(img);
+
     % Pre-processing steps...why were these numbers used etc?
     averageImage = [129.1863,104.7624,93.5940] ;
 

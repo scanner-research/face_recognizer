@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
-import caffe
+#import caffe
 import os
 import pickle
 import hashlib
@@ -16,6 +16,7 @@ from sklearn.cluster import KMeans
 THRESHOLD = 0.00040
 FEATURE_LAYER = 'fc8'
 CLUSTERS = 32
+PICKLE = False
 
 # Change this appropriately
 IMG_DIRECTORY = './imgs/'
@@ -51,7 +52,9 @@ def test_imgs(imgs, names):
     imgs.sort()
 
     pickle_name = gen_pickle_name(imgs)
-    if os.path.isfile(pickle_name):  
+    print("pickle name is ", pickle_name)
+
+    if os.path.isfile(pickle_name) and PICKLE:
 
         with open(pickle_name, 'rb') as handle:
             all_feature_vectors = pickle.load(handle)
@@ -65,21 +68,23 @@ def test_imgs(imgs, names):
     else:
         
         all_feature_vectors, preds = run_caffe(imgs, names)
-        with open(pickle_name, 'w+') as handle:
-            pickle.dump(all_feature_vectors, handle, protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump(preds, handle, protocol=pickle.HIGHEST_PROTOCOL)
-         
-        handle.close()
+
+        if PICKLE:
+            with open(pickle_name, 'w+') as handle:
+                pickle.dump(all_feature_vectors, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(preds, handle, protocol=pickle.HIGHEST_PROTOCOL)
+             
+            handle.close()
+
         return all_feature_vectors, preds
     
 
 def run_caffe(imgs, names):
     '''
     Main loop in which we use caffe to recognize / score each of the images
-    '''
+    ''' 
 
-    
-    caffe.set_mode_cpu()
+    caffe.set_mode_gpu()
 
     net = caffe.Net(model, weights, caffe.TEST); 
 
@@ -186,11 +191,25 @@ def run_tsne(all_feature_vectors, preds, names, imgs):
     assert len(all_feature_vectors) == len(preds) == len(imgs), 'features and preds \
             should be same length'
 
-    labels = imgs
+    # Since we don't have correct labels - maybe we should just plot it without
+    # labels - will just be the same color.
+
+    labels = range(len(imgs))
+    labels = np.array(labels)
+    
+    # In Y, every feature is reduced to an x,y point.
     Y = tsne(all_feature_vectors)
 
-    Plot.scatter(Y[:,0], Y[:,1], 20, labels);
-    Plot.show();
+    # See if this is much different than direct kmeans
+    kmeans_clustering(Y, preds, names, imgs)
+
+    # Visualizing this - if we knew the correct labels, then it would be
+    # perfect.
+
+    # FIXME: Best way to visualize this?
+    # size = 20
+    # Plot.scatter(Y[:,0], Y[:,1], size, labels);
+    # Plot.show();
     
 def main():
 
