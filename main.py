@@ -10,6 +10,7 @@ import hashlib
 
 from tsne import *
 from sklearn.cluster import KMeans
+from timeit import default_timer as now
 
 # Note: If want to turn caffe output on/off then toggle GLOG_minloglevel
 # environment variable.
@@ -22,14 +23,15 @@ from sklearn.cluster import KMeans
 THRESHOLD = 0.00040
 FEATURE_LAYER = 'fc8'
 CLUSTERS = 32
-PICKLE = True
+PICKLE = False
 TSNE_PICKLE = True
+INPUT_SIZE = 224
 
 # Use opencv to display images in same cluster (on local comp)
-DISP_IMGS = False
+#DISP_IMGS = True
 
 # Change this appropriately
-IMG_DIRECTORY = './twilight1_proc/'
+IMG_DIRECTORY = './twilight1_imgs/'
 
 # caffe files
 model = 'VGG_FACE_deploy.prototxt';
@@ -66,7 +68,6 @@ def test_imgs(imgs, names):
     imgs.sort()
 
     pickle_name = gen_pickle_name(imgs)
-    print("pickle name is ", pickle_name)
 
     if os.path.isfile(pickle_name) and PICKLE:
 
@@ -93,25 +94,24 @@ def test_imgs(imgs, names):
         return all_feature_vectors, preds
     
 
-def run_caffe(imgs, names):
+def run_caffe(img_files, names):
     '''
     Main loop in which we use caffe to recognize / score each of the images
     ''' 
 
-    caffe.set_mode_cpu()
+    caffe.set_mode_gpu()
 
-    net = caffe.Net(model, weights, caffe.TEST); 
-
-    transformer = caffe.io.Transformer({'data':net.blobs['data'].data.shape})
-    transformer.set_transpose('data', (2,0,1))
-    transformer.set_channel_swap('data', (2,1,0))
-
+    net = caffe.Net(model, weights, caffe.TEST)
+    
     all_feature_vectors = []
-    recognized = 0
+    imgs = []
+    #recognized = 0
     # List with name of recognized celebrity or 'unknown'
-    preds = []
+    #preds = []
 
-    for img_file in imgs:
+    # hack because otherwise running into some memory limits...
+
+    for i, img_file in enumerate(img_files):
 
         try:
             img = caffe.io.load_image(img_file)
@@ -122,45 +122,85 @@ def run_caffe(imgs, names):
         # Can resize it here / or just run a separate preprocessing script that
         # resizes it.
         img = caffe.io.resize_image(img, (224,224), interp_order=3)
-
         assert img.shape == (224, 224, 3), 'img shape is not 224x224'
+        imgs.append(img)
+     
+        if i != 0 and i % 100 == 0:
+            # Let's run caffe on this
 
-        # Check this step - might want to do more pre-processing etc? 
-        # Also maybe something going wrong in the GPU model here.
-        img_data = transformer.preprocess('data', img)
-        net.blobs['data'].data[...] = img_data
+            net.blobs['data'].reshape(*(len(imgs), 3, INPUT_SIZE, INPUT_SIZE))
+            transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+            transformer.set_transpose('data', (2, 0, 1))
+            transformer.set_channel_swap('data', (2, 1, 0))
+            
+            data = np.asarray([transformer.preprocess('data', img) for img in imgs])
 
-        output = net.forward()
+            start = now()
+            net.forward_all(data=data)
 
-        guess = int(output['prob'].argmax())
-        conf = output['prob'][0, guess]
+            data = np.asarray([transformer.preprocess('data', img) for img in imgs])
+
+            output = net.blobs[FEATURE_LAYER].data
+
+            all_feature_vectors.append(output)
+
+            imgs = []
+
+    print(all_feature_vectors[0].shape)
+
+    print('successfully executed forward all')
+    exit(0)
+
+    # for img_file in imgs:
+
+        # try:
+            # img = caffe.io.load_image(img_file)
+        # except IOError:
+            # print("caught an IO error for file ", img_file)
+            # continue
+
+        # # Can resize it here / or just run a separate preprocessing script that
+        # # resizes it.
+        # img = caffe.io.resize_image(img, (224,224), interp_order=3)
+
+        # assert img.shape == (224, 224, 3), 'img shape is not 224x224'
+
+        # # Check this step - might want to do more pre-processing etc? 
+        # # Also maybe something going wrong in the GPU model here.
+        # img_data = transformer.preprocess('data', img)
+        # net.blobs['data'].data[...] = img_data
+
+        # output = net.forward()
+
+        # guess = int(output['prob'].argmax())
+        # conf = output['prob'][0, guess]
         
-        print('name was ', names[guess], 'confidence is ', conf)
+        # print('name was ', names[guess], 'confidence is ', conf)
 
-        # Get feature activations
-        feature_vector = net.blobs[FEATURE_LAYER].data
+        # # Get feature activations
+        # feature_vector = net.blobs[FEATURE_LAYER].data
         
-        # Need to make np.copy because list assignment is by ref, and
-        # net.blobs[FEATURE_LAYER].data will change in next it
-        all_feature_vectors.append(np.copy(feature_vector[0]))
+        # # Need to make np.copy because list assignment is by ref, and
+        # # net.blobs[FEATURE_LAYER].data will change in next it
+        # all_feature_vectors.append(np.copy(feature_vector[0]))
 
-        if conf >= THRESHOLD:
-            # recognized someone
-            # add file_name to list of recogs etc
-            recognized += 1
-            name = names[guess] + '++'
-        else:
-            name = names[guess] + '--'
+        # if conf >= THRESHOLD:
+            # # recognized someone
+            # # add file_name to list of recogs etc
+            # recognized += 1
+            # name = names[guess] + '++'
+        # else:
+            # name = names[guess] + '--'
 
-        preds.append(name)
+        # preds.append(name)
 
 
-    print('recognized users = ', recognized, 'from total = ', len(imgs))
+    # print('recognized users = ', recognized, 'from total = ', len(imgs))
     # Use some sort of clustering on the final layer
 
-    all_feature_vectors = np.array(all_feature_vectors)
+    # all_feature_vectors = np.array(all_feature_vectors)
     
-    return all_feature_vectors, preds
+    # return all_feature_vectors, preds
 
 #FIXME: Combine these two functions
 def gen_pickle_name(imgs):
@@ -233,6 +273,8 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
+    print("features = ", len(all_feature_vectors))
+    print("preds = ", len(preds))
 
     # FIXME: extra imgs with final_girl?
     # print("imgs = ", len(imgs))
@@ -288,18 +330,13 @@ def main():
     all_feature_vectors, preds = test_imgs(imgs, names)
 
     # sanity check
-    zero_norm = 0
     for i,f in enumerate(all_feature_vectors):
         norm = np.linalg.norm(f)
         # assert norm != 0, 'norm of features is 0'
         if norm == 0:
-           zero_norm +=  1
-           # print i
-           # print f
+           print i
+           print f
     
-    print("total feature vectors are = ", len(all_feature_vectors))
-    print("zero norms were = ", zero_norm)
-
     kmeans_clustering(all_feature_vectors, preds, names, imgs)
 
     # do tsne clustering now.
