@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import time
 
 import caffe
 
@@ -12,6 +13,8 @@ from tsne import *
 from sklearn.cluster import KMeans
 from timeit import default_timer as now
 
+import copy
+
 # Note: If want to turn caffe output on/off then toggle GLOG_minloglevel
 # environment variable.
 
@@ -22,18 +25,21 @@ from timeit import default_timer as now
 
 # FIXME: Turn this into argparse stuff
 THRESHOLD = 0.00040
-FEATURE_LAYER = 'fc8'
+
+FC7_SIZE = 4096
+FC8_SIZE = 2622
+
 CLUSTERS = 32
 PICKLE = False
 TSNE_PICKLE = True
 INPUT_SIZE = 224
-BATCH_SIZE = 100
+BATCH_SIZE = 50
 
 # Use opencv to display images in same cluster (on local comp)
 #DISP_IMGS = True
 
 # Change this appropriately
-IMG_DIRECTORY = './twilight1_imgs/'
+IMG_DIRECTORY = './imgs/'
 
 # caffe files
 model = 'VGG_FACE_deploy.prototxt';
@@ -68,8 +74,7 @@ def test_imgs(imgs, names):
     '''
     
     imgs.sort()
-
-    pickle_name = gen_pickle_name(imgs)
+    pickle_name = gen_pickle_name(imgs, 'fc7')
 
     if os.path.isfile(pickle_name) and PICKLE:
 
@@ -105,50 +110,91 @@ def run_caffe(img_files, names):
 
     net = caffe.Net(model, weights, caffe.TEST)
     
-    all_feature_vectors = []
-    imgs = []
-    #recognized = 0
-    # List with name of recognized celebrity or 'unknown'
-    #preds = []
+    features = {}
+    features['fc7'] = []
+    features['fc8'] = []
 
-    # hack because otherwise running into some memory limits...
+    features_test = {}
+    features_test['fc7'] = []
+    features_test['fc8'] = []
+
+    norms = {}
+    norms['fc7'] = []
+    norms['fc8'] = []
+
+    imgs = []
+    recognized = 0
+    # List with name of recognized celebrity or 'unknown'
+    preds = []
+
+    # using batches because otherwise running into some memory limits...
 
     for i, img_file in enumerate(img_files):
 
         try:
             img = caffe.io.load_image(img_file)
         except IOError:
-            print("caught an IO error for file ", img_file)
             continue
 
-        # Can resize it here / or just run a separate preprocessing script that
-        # resizes it.
         img = caffe.io.resize_image(img, (224,224), interp_order=3)
+        # FIXME: run a pre-processing script here
+
         assert img.shape == (224, 224, 3), 'img shape is not 224x224'
+
         imgs.append(img)
      
         if i != 0 and i % BATCH_SIZE == 0:
-            # Let's run caffe on this
-
+            # Let's run caffe on this batch
             net.blobs['data'].reshape(*(len(imgs), 3, INPUT_SIZE, INPUT_SIZE))
             transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
             transformer.set_transpose('data', (2, 0, 1))
-            transformer.set_channel_swap('data', (2, 1, 0))
+            transformer.set_channel_swap('data', (2, 1, 0))        
+
+            data = np.asarray([transformer.preprocess('data', img) for img in imgs])
+
+            final_output = net.forward_all(data=data)
+            probs = final_output['prob']
+            for prob in probs:
+                assert np.linalg.norm(prob) != 0, 'prob = 0' 
+                guess = int(prob.argmax())
+                conf = prob[guess]
+                print('name was ', names[guess], 'confidence is ', conf)
+                if conf > THRESHOLD:
+                    recognized += 1
             
-            data = np.asarray([transformer.preprocess('data', img) for img in imgs])
+            for layer in features:
+                output = net.blobs[layer].data
 
-            start = now()
-            net.forward_all(data=data)
+                for j, row in enumerate(output):
+                    assert np.linalg.norm(row) != 0, 'output = 0'
+                    features[layer].append(np.copy(row))
+                    features_test[layer].append(row)
+                    norms[layer].append(np.linalg.norm(row))
 
-            data = np.asarray([transformer.preprocess('data', img) for img in imgs])
-
-            output = net.blobs[FEATURE_LAYER].data
-
-            all_feature_vectors.append(output)
-
+                    assert np.linalg.norm(features[layer][j]) != 0, 'fc8 feat 0'
+ 
+            # reset imgs for the next batch
             imgs = []
 
-    print(all_feature_vectors[0].shape)
+    # for i, features in enumerate(test_features):
+        # assert np.linalg.norm(features) != 0, 'feature norm was 0'
+    
+    for layer in features:
+        for i, row in enumerate(features[layer]):
+
+            f1 = np.linalg.norm(features_test[layer][i])
+            f2 = np.linalg.norm(row)
+            true_norm = norms[layer][i]
+
+            assert f2 != 0, ':('
+            assert f1 != 0, ':((('
+
+            if f1 != f2:
+                print('for i = ', i, 'norms are different!')
+                print(f1)
+                print(f2)
+                print(true_norm)
+                
 
     print('successfully executed forward all')
     exit(0)
@@ -205,13 +251,13 @@ def run_caffe(img_files, names):
     # return all_feature_vectors, preds
 
 #FIXME: Combine these two functions
-def gen_pickle_name(imgs):
+def gen_pickle_name(imgs, feature_layer):
     """
     Use hash of file names + which layer data we're storing. 
     """
     hashed_input = hashlib.sha1(str(imgs)).hexdigest()
     
-    name = hashed_input + '_' + FEATURE_LAYER
+    name = hashed_input + '_' + feature_layer
 
     directory = "./pickle/"
 
@@ -271,7 +317,6 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 
                 # wait for a keypress to go to next image
 
-
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
@@ -312,6 +357,12 @@ def run_tsne(all_feature_vectors, preds, names, imgs):
     Plot.scatter(Y[:,0], Y[:,1], size);
     Plot.show();
     
+# FIXME: Implement the general pickle function
+# def do_pickle(pickle_bool, name_func, pickle_list):
+    # '''
+    # General function to handle pickling.
+    # '''
+
 def main():
 
     names = load_names()
