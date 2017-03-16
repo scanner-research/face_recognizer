@@ -18,25 +18,23 @@ import copy
 # Note: If want to turn caffe output on/off then toggle GLOG_minloglevel
 # environment variable.
 
-# Arbitrarily chosen - because it seemed to be identifying people correctly
-# when the output was over this threshold, and wrong otherwise. Not sure why
-# the values are so low - might have something to do with why it does not work
-# in gpu mode?
-
 # FIXME: Turn this into argparse stuff
+
+# Arbitrarily chosen - because it seemed to be identifying people correctly
 THRESHOLD = 0.00040
 
 FC7_SIZE = 4096
 FC8_SIZE = 2622
 
 CLUSTERS = 32
-PICKLE = False
+PICKLE = True
 TSNE_PICKLE = True
 INPUT_SIZE = 224
 BATCH_SIZE = 50
+CENTER = True
 
 # Use opencv to display images in same cluster (on local comp)
-#DISP_IMGS = True
+DISP_IMGS = False
 
 # Change this appropriately
 IMG_DIRECTORY = './imgs/'
@@ -67,7 +65,7 @@ def load_img_files():
 
     return imgs
 
-def test_imgs(imgs, names):
+def get_features(imgs, names):
     '''
     Checks pickle for precomputed data, otherwise runs the caffe stuff on the
     all images in imgs.
@@ -76,30 +74,44 @@ def test_imgs(imgs, names):
     imgs.sort()
     pickle_name = gen_pickle_name(imgs, 'fc7')
 
-    if os.path.isfile(pickle_name) and PICKLE:
+    features, preds = do_pickle(PICKLE, pickle_name, 2, run_caffe, imgs, names)
+    sanity_check_features(features)
 
-        with open(pickle_name, 'rb') as handle:
-            all_feature_vectors = pickle.load(handle)
-            preds = pickle.load(handle)
-            print("successfully loaded pickle file!")    
-
-        handle.close()
-
-        return all_feature_vectors, preds
-
-    else:
-        
-        all_feature_vectors, preds = run_caffe(imgs, names)
-
-        if PICKLE:
-            with open(pickle_name, 'w+') as handle:
-                pickle.dump(all_feature_vectors, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                pickle.dump(preds, handle, protocol=pickle.HIGHEST_PROTOCOL)
-             
-            handle.close()
-
-        return all_feature_vectors, preds
+    return features, preds
     
+def centralize(img):
+    '''
+    img is an np array - width, height, 3.
+    centers and crops it - then returns img.
+
+    Based on faceCrop.m from the vgg matconvnet code
+
+    FIXME: should compare outputs with matlab script for correctness...
+    '''
+    # Because we already have a cropped face - will deal with it as if the
+    # whole image is the bounding box
+
+    extend = 0.1
+    x1, y1 = 0, 0
+    x2, y2, _ = img.shape
+    width = round(x2-x1)
+    height = round(y2-y1)
+
+    length = (width + height) / 2
+    centrepoint = [round(x1) + width/2, round(y1) + height/2]
+    x1 = centrepoint[0] - round(1+extend)*(length/2)
+    y1 = centrepoint[1] - round(1+extend)*(length/2)
+    x2 = centrepoint[0] + round(1+extend)*(length/2)
+    y2 = centrepoint[1] + round(1+extend)*(length/2)
+
+    x1 = int(max(0, x1))
+    y1 = int(max(0, y1))
+    x2 = int(min(x2, img.shape[0]))
+    y2 = int(min(y2, img.shape[1]))
+
+    img = img[x1:x2, y1:y2,:]
+
+    return img
 
 def run_caffe(img_files, names):
     '''
@@ -113,37 +125,31 @@ def run_caffe(img_files, names):
     features = {}
     features['fc7'] = []
     features['fc8'] = []
+    features['fc6'] = []
 
-    features_test = {}
-    features_test['fc7'] = []
-    features_test['fc8'] = []
-
-    norms = {}
-    norms['fc7'] = []
-    norms['fc8'] = []
-
-    imgs = []
     recognized = 0
-    # List with name of recognized celebrity or 'unknown'
     preds = []
 
     # using batches because otherwise running into some memory limits...
-
+    imgs = []
     for i, img_file in enumerate(img_files):
 
         try:
             img = caffe.io.load_image(img_file)
         except IOError:
             continue
-
+        
+        # not sure if centralizing it really helps because we aren't cropping
+        # out a bounding box from a bigger image as in the orig paper
+        if CENTER:
+            img = centralize(img)
+            
         img = caffe.io.resize_image(img, (224,224), interp_order=3)
-        # FIXME: run a pre-processing script here
-
         assert img.shape == (224, 224, 3), 'img shape is not 224x224'
-
         imgs.append(img)
      
         if i != 0 and i % BATCH_SIZE == 0:
+
             # Let's run caffe on this batch
             net.blobs['data'].reshape(*(len(imgs), 3, INPUT_SIZE, INPUT_SIZE))
             transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
@@ -158,97 +164,32 @@ def run_caffe(img_files, names):
                 assert np.linalg.norm(prob) != 0, 'prob = 0' 
                 guess = int(prob.argmax())
                 conf = prob[guess]
-                print('name was ', names[guess], 'confidence is ', conf)
+                # print('name was ', names[guess], 'confidence is ', conf)
+                name = names[guess]
                 if conf > THRESHOLD:
                     recognized += 1
+                    name += '++'
+                else:
+                    name += '--'
+
+                preds.append(name)
             
             for layer in features:
                 output = net.blobs[layer].data
-
                 for j, row in enumerate(output):
                     assert np.linalg.norm(row) != 0, 'output = 0'
                     features[layer].append(np.copy(row))
-                    features_test[layer].append(row)
-                    norms[layer].append(np.linalg.norm(row))
-
-                    assert np.linalg.norm(features[layer][j]) != 0, 'fc8 feat 0'
  
             # reset imgs for the next batch
             imgs = []
 
-    # for i, features in enumerate(test_features):
-        # assert np.linalg.norm(features) != 0, 'feature norm was 0'
-    
+    print('recognized = ', recognized)
+
+    sanity_check_features(features)
     for layer in features:
-        for i, row in enumerate(features[layer]):
+        features[layer] = np.array(features[layer])
 
-            f1 = np.linalg.norm(features_test[layer][i])
-            f2 = np.linalg.norm(row)
-            true_norm = norms[layer][i]
-
-            assert f2 != 0, ':('
-            assert f1 != 0, ':((('
-
-            if f1 != f2:
-                print('for i = ', i, 'norms are different!')
-                print(f1)
-                print(f2)
-                print(true_norm)
-                
-
-    print('successfully executed forward all')
-    exit(0)
-
-    # for img_file in imgs:
-
-        # try:
-            # img = caffe.io.load_image(img_file)
-        # except IOError:
-            # print("caught an IO error for file ", img_file)
-            # continue
-
-        # # Can resize it here / or just run a separate preprocessing script that
-        # # resizes it.
-        # img = caffe.io.resize_image(img, (224,224), interp_order=3)
-
-        # assert img.shape == (224, 224, 3), 'img shape is not 224x224'
-
-        # # Check this step - might want to do more pre-processing etc? 
-        # # Also maybe something going wrong in the GPU model here.
-        # img_data = transformer.preprocess('data', img)
-        # net.blobs['data'].data[...] = img_data
-
-        # output = net.forward()
-
-        # guess = int(output['prob'].argmax())
-        # conf = output['prob'][0, guess]
-        
-        # print('name was ', names[guess], 'confidence is ', conf)
-
-        # # Get feature activations
-        # feature_vector = net.blobs[FEATURE_LAYER].data
-        
-        # # Need to make np.copy because list assignment is by ref, and
-        # # net.blobs[FEATURE_LAYER].data will change in next it
-        # all_feature_vectors.append(np.copy(feature_vector[0]))
-
-        # if conf >= THRESHOLD:
-            # # recognized someone
-            # # add file_name to list of recogs etc
-            # recognized += 1
-            # name = names[guess] + '++'
-        # else:
-            # name = names[guess] + '--'
-
-        # preds.append(name)
-
-
-    # print('recognized users = ', recognized, 'from total = ', len(imgs))
-    # Use some sort of clustering on the final layer
-
-    # all_feature_vectors = np.array(all_feature_vectors)
-    
-    # return all_feature_vectors, preds
+    return features, preds
 
 #FIXME: Combine these two functions
 def gen_pickle_name(imgs, feature_layer):
@@ -320,8 +261,6 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
-    # FIXME: extra imgs with final_girl?
-    # print("imgs = ", len(imgs))
     assert len(all_feature_vectors) == len(preds), 'features and preds \
             should be same length'
 
@@ -329,59 +268,70 @@ def run_tsne(all_feature_vectors, preds, names, imgs):
     # labels - will just be the same color.
 
     pickle_name = tsne_gen_pickle_name(all_feature_vectors)
-
-    if os.path.isfile(pickle_name) and TSNE_PICKLE:
-
-        with open(pickle_name, 'rb') as handle:
-            Y = pickle.load(handle)
-            print("successfully loaded pickle file!")    
-
-        handle.close()
-
-    else:
-        
-        Y = tsne(all_feature_vectors)
-
-        if TSNE_PICKLE:
-            with open(pickle_name, 'w+') as handle:
-                pickle.dump(Y, handle, protocol=pickle.HIGHEST_PROTOCOL)
-             
-            handle.close()
+    
+    Y = do_pickle(TSNE_PICKLE, pickle_name, 1, tsne, all_feature_vectors)
 
     # See if this is much different than direct kmeans
-    #kmeans_clustering(Y, preds, names, imgs)
+    # kmeans_clustering(Y, preds, names, imgs)
 
     #FIXME: Better way to visualize this? 
 
-    size = 20
-    Plot.scatter(Y[:,0], Y[:,1], size);
-    Plot.show();
+    # this won't work on the halfmoon cluster so run it on a local machine
+    #size = 20
+    # Plot.scatter(Y[:,0], Y[:,1], size);
+    # Plot.show();
     
-# FIXME: Implement the general pickle function
-# def do_pickle(pickle_bool, name_func, pickle_list):
-    # '''
-    # General function to handle pickling.
-    # '''
+def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
+    '''
+    General function to handle pickling.
+    @func: call this guy to get the result if pickle file not available.
+
+    '''
+    if not pickle_bool:
+        rets = func(*args)   
+    elif os.path.isfile(pickle_name):
+        #pickle exists!
+        with open(pickle_name, 'rb') as handle:
+            rets = []
+            for i in range(num_args):
+                rets.append(pickle.load(handle))
+
+            print("successfully loaded pickle file!")    
+            rets = tuple(rets)
+            handle.close()
+
+    else:
+        rets = func(*args)
+        
+        # dump it for future
+        with open(pickle_name, 'w+') as handle:
+            for i in range(len(rets)):
+                pickle.dump(rets[i], handle, protocol=pickle.HIGHEST_PROTOCOL) 
+        handle.close()
+
+    return rets
+
+def sanity_check_features(features):
+
+    for layer in features:
+        print features[layer].shape
+        for i, row in enumerate(features[layer]):
+            f1 = np.linalg.norm(row)
+            assert f1 != 0, ':((('
 
 def main():
 
     names = load_names()
     imgs = load_img_files()
     
-    all_feature_vectors, preds = test_imgs(imgs, names)
+    features, preds = get_features(imgs, names)
 
-    # sanity check
-    for i,f in enumerate(all_feature_vectors):
-        norm = np.linalg.norm(f)
-        # assert norm != 0, 'norm of features is 0'
-        if norm == 0:
-           print i
-           print f
-    
-    kmeans_clustering(all_feature_vectors, preds, names, imgs)
+    layer = features['fc7']
+
+    kmeans_clustering(layer, preds, names, imgs)
 
     # do tsne clustering now.
-    #run_tsne(all_feature_vectors, preds, names, imgs)
+    run_tsne(layer, preds, names, imgs)
 
 if __name__ == '__main__':
 

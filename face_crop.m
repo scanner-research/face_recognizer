@@ -1,5 +1,4 @@
     
-
 disp('starting the cropping stuff!');
 % 224 is the expected dimension?
 extend = 0.1;
