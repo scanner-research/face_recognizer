@@ -20,12 +20,14 @@ from timeit import default_timer as now
 # the values are so low - might have something to do with why it does not work
 # in gpu mode?
 
+# FIXME: Turn this into argparse stuff
 THRESHOLD = 0.00040
 FEATURE_LAYER = 'fc8'
 CLUSTERS = 32
 PICKLE = False
 TSNE_PICKLE = True
 INPUT_SIZE = 224
+BATCH_SIZE = 100
 
 # Use opencv to display images in same cluster (on local comp)
 #DISP_IMGS = True
@@ -125,7 +127,7 @@ def run_caffe(img_files, names):
         assert img.shape == (224, 224, 3), 'img shape is not 224x224'
         imgs.append(img)
      
-        if i != 0 and i % 100 == 0:
+        if i != 0 and i % BATCH_SIZE == 0:
             # Let's run caffe on this
 
             net.blobs['data'].reshape(*(len(imgs), 3, INPUT_SIZE, INPUT_SIZE))
@@ -273,22 +275,13 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
-    print("features = ", len(all_feature_vectors))
-    print("preds = ", len(preds))
-
     # FIXME: extra imgs with final_girl?
     # print("imgs = ", len(imgs))
-
     assert len(all_feature_vectors) == len(preds), 'features and preds \
             should be same length'
 
     # Since we don't have correct labels - maybe we should just plot it without
     # labels - will just be the same color.
-
-    # labels = range(len(imgs))
-    # labels = np.array(labels)
-    
-    # In Y, every feature is reduced to an x,y point.
 
     pickle_name = tsne_gen_pickle_name(all_feature_vectors)
 
@@ -300,16 +293,13 @@ def run_tsne(all_feature_vectors, preds, names, imgs):
 
         handle.close()
 
-        return all_feature_vectors, preds
-
     else:
         
         Y = tsne(all_feature_vectors)
 
         if TSNE_PICKLE:
             with open(pickle_name, 'w+') as handle:
-                pickle.dump(all_feature_vectors, handle, protocol=pickle.HIGHEST_PROTOCOL)
-                pickle.dump(preds, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(Y, handle, protocol=pickle.HIGHEST_PROTOCOL)
              
             handle.close()
 
