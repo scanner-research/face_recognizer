@@ -11,6 +11,9 @@ import hashlib
 
 from tsne import *
 from sklearn.cluster import KMeans
+from sklearn.cluster import AffinityPropagation
+from sklearn.cluster import DBSCAN
+
 from timeit import default_timer as now
 
 import copy
@@ -26,7 +29,7 @@ THRESHOLD = 0.00040
 FC7_SIZE = 4096
 FC8_SIZE = 2622
 
-CLUSTERS = 32
+CLUSTERS = 4
 PICKLE = True
 TSNE_PICKLE = True
 INPUT_SIZE = 224
@@ -36,16 +39,17 @@ CENTER = True
 # Use opencv to display images in same cluster (on local comp)
 DISP_IMGS = False
 
+DATA_DIR = 'data'
 # Change this appropriately
-IMG_DIRECTORY = './imgs/'
+IMG_DIRECTORY = os.path.join(DATA_DIR, 'twilight1_imgs/')
 
 # caffe files
-model = 'VGG_FACE_deploy.prototxt';
-weights = 'VGG_FACE.caffemodel';
+model = 'nets/VGG_FACE_deploy.prototxt';
+weights = 'nets/VGG_FACE.caffemodel';
 
 def load_names():
     # Let's set up the names to check if we are right or wrong
-    f = open('./names.txt')
+    f = open('./data/names.txt')
     names = f.read()
     names = names.split('\n')
     f.close()
@@ -225,8 +229,16 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
     belong to the same person or not.
     '''
 
-    kmeans = KMeans(n_clusters=CLUSTERS, random_state=0).fit(all_feature_vectors) 
+    # kmeans = KMeans(n_clusters=CLUSTERS, random_state=0).fit(all_feature_vectors) 
 
+    # Gives too many clusters:
+    # kmeans = AffinityPropagation(damping=0.50).fit(all_feature_vectors) 
+        
+    # 
+    kmeans = DBSCAN().fit(all_feature_vectors) 
+    
+    # Visualizing the labels_ - this is comman to all the clustering
+    # algorithms..
     label_names = {}
     for i, label in enumerate(kmeans.labels_):
 
@@ -314,7 +326,6 @@ def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
 def sanity_check_features(features):
 
     for layer in features:
-        print features[layer].shape
         for i, row in enumerate(features[layer]):
             f1 = np.linalg.norm(row)
             assert f1 != 0, ':((('
@@ -326,12 +337,14 @@ def main():
     
     features, preds = get_features(imgs, names)
 
-    layer = features['fc7']
+    layer = features['fc8']
 
     kmeans_clustering(layer, preds, names, imgs)
 
     # do tsne clustering now.
     run_tsne(layer, preds, names, imgs)
+
+    # FIXME: Add way to output clusters to csv file for better/easier checking
 
 if __name__ == '__main__':
 
