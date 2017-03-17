@@ -2,9 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 import time
-
 import caffe
-
 import os
 import pickle
 import hashlib
@@ -17,6 +15,8 @@ from sklearn.cluster import DBSCAN
 from timeit import default_timer as now
 
 import copy
+from PIL import Image
+import math
 
 # Note: If want to turn caffe output on/off then toggle GLOG_minloglevel
 # environment variable.
@@ -26,22 +26,20 @@ import copy
 # Arbitrarily chosen - because it seemed to be identifying people correctly
 THRESHOLD = 0.00040
 
-FC7_SIZE = 4096
-FC8_SIZE = 2622
-
 CLUSTERS = 4
 PICKLE = True
-TSNE_PICKLE = True
+TSNE_PICKLE = False
 INPUT_SIZE = 224
 BATCH_SIZE = 50
 CENTER = True
 
 # Use opencv to display images in same cluster (on local comp)
 DISP_IMGS = False
+SAVE_COMBINED = True
 
 DATA_DIR = 'data'
 # Change this appropriately
-IMG_DIRECTORY = os.path.join(DATA_DIR, 'twilight1_imgs/')
+IMG_DIRECTORY = os.path.join(DATA_DIR, 'rahman_song_imgs/')
 
 # caffe files
 model = 'nets/VGG_FACE_deploy.prototxt';
@@ -220,23 +218,15 @@ def tsne_gen_pickle_name(features):
 
     return directory + name + ".pickle"
 
-def kmeans_clustering(all_feature_vectors, preds, names, imgs):
+
+def random_clustering(all_feature_vectors, func, *args, **kwargs):
+
+    clusters = func(**kwargs).fit(all_feature_vectors)
+    return clusters
+
+def get_labels(kmeans, preds, names, imgs):
     '''
-    runs kmeans with mostly default values on all_feature_vectors - and then
-    prints out the names <--> labels combinations in the end.
-
-    Ideally, can then manually check if the faces clustered in the same label
-    belong to the same person or not.
     '''
-
-    # kmeans = KMeans(n_clusters=CLUSTERS, random_state=0).fit(all_feature_vectors) 
-
-    # Gives too many clusters:
-    # kmeans = AffinityPropagation(damping=0.50).fit(all_feature_vectors) 
-        
-    # 
-    kmeans = DBSCAN().fit(all_feature_vectors) 
-    
     # Visualizing the labels_ - this is comman to all the clustering
     # algorithms..
     label_names = {}
@@ -250,10 +240,34 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
             label_names[label] = []
 
         label_names[label].append((predicted_name, file_name))
+    
+    return label_names
+
+def kmeans_clustering(all_feature_vectors, clusters):
+    '''
+    runs kmeans with mostly default values on all_feature_vectors - and then
+    prints out the names <--> labels combinations in the end.
+
+    Ideally, can then manually check if the faces clustered in the same label
+    belong to the same person or not.
+    '''
+
+    kmeans = KMeans(n_clusters=clusters, random_state=0).fit(all_feature_vectors) 
+    return kmeans
+
+    # Gives too many clusters:
+    # kmeans = AffinityPropagation(damping=0.50).fit(all_feature_vectors) 
+        
+    # kmeans = DBSCAN().fit(all_feature_vectors) 
+    
+
+def process_clusters(label_names, name=''):
 
     for l in label_names:
-        print('label is ', l)
-        print(label_names[l])
+
+        # FIXME: Save this in a nice format to a file
+        # print('label is ', l)
+        # print(label_names[l])
 
         # Let's use opencv to display imgs one by one here in this cluster
         if DISP_IMGS:
@@ -270,6 +284,94 @@ def kmeans_clustering(all_feature_vectors, preds, names, imgs):
 
                 # wait for a keypress to go to next image
 
+        # Let's save these in a nice view
+        if SAVE_COMBINED:
+
+            n = math.sqrt(len(label_names[l]))
+            print('n = ', n)
+            n = int(math.floor(n))
+            
+            rows = []
+            for i in range(n):
+                # i is the current row that we are saving.
+                # 
+                row = []
+                for j in range(i*n, i*n+n, 1):
+                    
+                    file_name = label_names[l][j][1]
+                    # row.append(cv2.imread(file_name))
+                    try:
+                        img = Image.open(file_name)
+                    except:
+                        print('couldnt open img')
+                        continue
+
+                    row.append(img)
+                
+                rows.append(combine_imgs(row, 'horiz'))
+
+            final_image = combine_imgs(rows, 'vertical')
+
+            print("going to save the image!...")
+
+            file_name = get_cluster_image_name(name, label_names[l], l)
+            
+            print('file name is ', file_name)
+            final_image.save(file_name, quality=100)
+
+def get_cluster_image_name(name, lst, label):
+
+    hashed_input = hashlib.sha1(str(lst)).hexdigest()
+
+    movie = IMG_DIRECTORY.split('/')[-2]
+
+    name = 'results/' + name + '_' + movie + '_' + hashed_input[0:5] + '_' + label + '.jpg'
+
+    return name
+
+def combine_imgs(imgs, direction):
+    '''
+    '''
+    # pick the image which is the smallest, and resize the others to match it (can be arbitrary image shape here)
+    min_shape = sorted([(np.sum(i.size), i.size) for i in imgs])[0][1]
+    if 'hor' in direction:
+        min_shape = (30,30)
+
+    # imgs = [i.resize(min_shape, refcheck=False) for i in imgs]
+
+    if 'hor' in direction:
+
+        imgs_comb = np.hstack( (np.asarray( i.resize(min_shape, Image.ANTIALIAS) ) for i in imgs ) )
+        imgs_comb = Image.fromarray(imgs_comb)
+    else:
+        
+        imgs_comb = np.vstack( (np.asarray( i.resize(min_shape, Image.ANTIALIAS) ) for i in imgs ) )
+        imgs_comb = Image.fromarray(imgs_comb)
+
+    return imgs_comb
+
+def imscatter(x, y, images, ax=None, zoom=1):
+    if ax is None:
+        ax = plt.gca()
+
+    x, y = np.atleast_1d(x, y)
+    artists = []
+    for x0, y0, img_name in zip(x, y, images):
+
+        try:
+            im_name = plt.imread(im_name)
+        except:
+            print('could nt read img')
+            continue
+
+        im = OffsetImage(image, zoom=zoom)
+        ab = AnnotationBbox(im, (x0, y0), xycoords='data', frameon=False)
+        artists.append(ax.add_artist(ab))
+
+    ax.update_datalim(np.column_stack([x, y]))
+    ax.autoscale()
+    return artists
+
 def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
@@ -282,16 +384,32 @@ def run_tsne(all_feature_vectors, preds, names, imgs):
     pickle_name = tsne_gen_pickle_name(all_feature_vectors)
     
     Y = do_pickle(TSNE_PICKLE, pickle_name, 1, tsne, all_feature_vectors)
+    x = []
+    y = []
+    img_names = []
 
-    # See if this is much different than direct kmeans
-    # kmeans_clustering(Y, preds, names, imgs)
+    for i, coord in enumerate(Y):
+        if random.randint(0,50) == 20:
+            assert len(coord) == 2, 'coord not 2?'
+            x.append(coord[0])
+            y.append(coord[1])
+            file_name = imgs[i]
+            img_names.append(file_name)
 
+    fig, ax = plt.subplots()
+    imgscatter(x, y, img_names, zoom=0.1, ax=ax)
+    ax.scatter(x,y)
+    
+    print('going to show the plot now...')
+    plt.show()
+    
     #FIXME: Better way to visualize this? 
 
     # this won't work on the halfmoon cluster so run it on a local machine
     #size = 20
     # Plot.scatter(Y[:,0], Y[:,1], size);
     # Plot.show();
+    return Y
     
 def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
     '''
@@ -309,7 +427,9 @@ def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
                 rets.append(pickle.load(handle))
 
             print("successfully loaded pickle file!")    
+            print(len(rets))
             rets = tuple(rets)
+            print(len(rets))
             handle.close()
 
     else:
@@ -335,16 +455,37 @@ def main():
     names = load_names()
     imgs = load_img_files()
     
-    features, preds = get_features(imgs, names)
+    all_features, preds = get_features(imgs, names)
+    print('got features')
 
-    layer = features['fc8']
+    for clusters in [2,4,8]:
+        # for layer in ['fc6', 'fc7', 'fc8']:
+        for layer in ['fc8']:
 
-    kmeans_clustering(layer, preds, names, imgs)
+            feature_vectors = all_features[layer]
 
-    # do tsne clustering now.
-    run_tsne(layer, preds, names, imgs)
+            kmeans = random_clustering(feature_vectors, KMeans, n_clusters=clusters)
+            labels = get_labels(kmeans, preds, names, imgs)
+            process_clusters(labels, name=layer+'_'+ str(clusters))
 
-    # FIXME: Add way to output clusters to csv file for better/easier checking
+            # do tsne based clustering now.
+            Y = run_tsne(feature_vectors, preds, names, imgs)
+            kmeans = random_clustering(Y, KMeans, n_clusters=clusters)
+
+            tsne_labels = get_labels(kmeans, preds, names, imgs)
+            process_clusters(tsne_labels, name='tsne'+ '_' + layer +'_'+  str(clusters))
+
+            # other methods?
+
+    feature_vectors = all_features['fc7'] 
+    DBS = random_clustering(feature_vectors, DBSCAN, eps=0.3)
+    labels = get_labels(DBS, preds, names, imgs)
+    process_clusters(labels, name='DBS' + '_'+ 'fc8')
+     
+    # AP = random_clustering(feature_vectors, AffinityPropagation)
+    # labels = get_labels(AP, preds, names, imgs)
+    # process_clusters(labels, name='AP' +'_'+ 'fc8')
+
 
 if __name__ == '__main__':
 
