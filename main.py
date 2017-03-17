@@ -1,11 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from matplotlib.cbook import get_sample_data
 import cv2
 import time
-import caffe
+#import caffe
 import os
 import pickle
 import hashlib
+import random
 
 from tsne import *
 from sklearn.cluster import KMeans
@@ -39,7 +42,7 @@ SAVE_COMBINED = True
 
 DATA_DIR = 'data'
 # Change this appropriately
-IMG_DIRECTORY = os.path.join(DATA_DIR, 'rahman_song_imgs/')
+IMG_DIRECTORY = os.path.join(DATA_DIR, 'twilight1_imgs/')
 
 # caffe files
 model = 'nets/VGG_FACE_deploy.prototxt';
@@ -350,7 +353,7 @@ def combine_imgs(imgs, direction):
 
     return imgs_comb
 
-def imscatter(x, y, images, ax=None, zoom=1):
+def imgscatter(x, y, images, ax=None, zoom=1):
     if ax is None:
         ax = plt.gca()
 
@@ -359,12 +362,12 @@ def imscatter(x, y, images, ax=None, zoom=1):
     for x0, y0, img_name in zip(x, y, images):
 
         try:
-            im_name = plt.imread(im_name)
+            img = plt.imread(img_name)
         except:
             print('could nt read img')
             continue
 
-        im = OffsetImage(image, zoom=zoom)
+        im = OffsetImage(img, zoom=zoom)
         ab = AnnotationBbox(im, (x0, y0), xycoords='data', frameon=False)
         artists.append(ax.add_artist(ab))
 
@@ -389,7 +392,9 @@ def run_tsne(all_feature_vectors, preds, names, imgs):
     img_names = []
 
     for i, coord in enumerate(Y):
-        if random.randint(0,50) == 20:
+
+        #including 1/30 images seems good?
+        if random.randint(0,30) == 20:
             assert len(coord) == 2, 'coord not 2?'
             x.append(coord[0])
             y.append(coord[1])
@@ -401,7 +406,10 @@ def run_tsne(all_feature_vectors, preds, names, imgs):
     ax.scatter(x,y)
     
     print('going to show the plot now...')
-    plt.show()
+
+    hashed_names = hashlib.sha1(str(img_names)).hexdigest()
+    file_name = 'tsne_plt_' + hashed_names[0:5] + '.png'
+    plt.savefig(file_name, dpi=1200)
     
     #FIXME: Better way to visualize this? 
 
@@ -458,29 +466,36 @@ def main():
     all_features, preds = get_features(imgs, names)
     print('got features')
 
-    for clusters in [2,4,8]:
-        # for layer in ['fc6', 'fc7', 'fc8']:
-        for layer in ['fc8']:
+    # for clusters in [2,4,8]:
+        # # for layer in ['fc6', 'fc7', 'fc8']:
+        # for layer in ['fc8']:
 
-            feature_vectors = all_features[layer]
+            # feature_vectors = all_features[layer]
 
-            kmeans = random_clustering(feature_vectors, KMeans, n_clusters=clusters)
-            labels = get_labels(kmeans, preds, names, imgs)
-            process_clusters(labels, name=layer+'_'+ str(clusters))
+            # kmeans = random_clustering(feature_vectors, KMeans, n_clusters=clusters)
+            # labels = get_labels(kmeans, preds, names, imgs)
+            # process_clusters(labels, name=layer+'_'+ str(clusters))
 
-            # do tsne based clustering now.
-            Y = run_tsne(feature_vectors, preds, names, imgs)
-            kmeans = random_clustering(Y, KMeans, n_clusters=clusters)
+            # # do tsne based clustering now.
+            # Y = run_tsne(feature_vectors, preds, names, imgs)
+            # kmeans = random_clustering(Y, KMeans, n_clusters=clusters)
 
-            tsne_labels = get_labels(kmeans, preds, names, imgs)
-            process_clusters(tsne_labels, name='tsne'+ '_' + layer +'_'+  str(clusters))
+            # tsne_labels = get_labels(kmeans, preds, names, imgs)
+            # process_clusters(tsne_labels, name='tsne'+ '_' + layer +'_'+  str(clusters))
 
             # other methods?
 
     feature_vectors = all_features['fc7'] 
-    DBS = random_clustering(feature_vectors, DBSCAN, eps=0.3)
-    labels = get_labels(DBS, preds, names, imgs)
-    process_clusters(labels, name='DBS' + '_'+ 'fc8')
+
+    Y = run_tsne(feature_vectors, preds, names, imgs)
+    # kmeans = random_clustering(Y, KMeans, n_clusters=clusters)
+
+    # tsne_labels = get_labels(kmeans, preds, names, imgs)
+    # process_clusters(tsne_labels, name='tsne'+ '_' + layer +'_'+  str(clusters))
+
+    # DBS = random_clustering(feature_vectors, DBSCAN, eps=0.3)
+    # labels = get_labels(DBS, preds, names, imgs)
+    # process_clusters(labels, name='DBS' + '_'+ 'fc8')
      
     # AP = random_clustering(feature_vectors, AffinityPropagation)
     # labels = get_labels(AP, preds, names, imgs)
