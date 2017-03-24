@@ -4,6 +4,7 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.cbook import get_sample_data
 import cv2
 import time
+#import caffe
 import os
 import pickle
 import hashlib
@@ -16,20 +17,23 @@ from sklearn.cluster import DBSCAN
 
 from timeit import default_timer as now
 
-# import copy
+import copy
 from PIL import Image
 import math
-
-import face_recognition
-import dlib
 
 # Note: If want to turn caffe output on/off then toggle GLOG_minloglevel
 # environment variable.
 
+# FIXME: Turn this into argparse stuff
+
 # Arbitrarily chosen - because it seemed to be identifying people correctly
+THRESHOLD = 0.00040
+
 CLUSTERS = 4
 PICKLE = True
 TSNE_PICKLE = False
+INPUT_SIZE = 224
+BATCH_SIZE = 50
 CENTER = True
 
 # Use opencv to display images in same cluster (on local comp)
@@ -38,11 +42,11 @@ SAVE_COMBINED = True
 
 DATA_DIR = 'data'
 # Change this appropriately
-IMG_DIRECTORY = os.path.join(DATA_DIR, 'twilight1_imgs/')
+IMG_DIRECTORY = os.path.join(DATA_DIR, 'final_girl_imgs/')
 
 # caffe files
-# model = 'nets/VGG_FACE_deploy.prototxt';
-# weights = 'nets/VGG_FACE.caffemodel';
+model = 'nets/VGG_FACE_deploy.prototxt';
+weights = 'nets/VGG_FACE.caffemodel';
 
 def load_names():
     # Let's set up the names to check if we are right or wrong
@@ -73,15 +77,12 @@ def get_features(imgs, names):
     '''
     
     imgs.sort()
-    
-    # pickle it later 
-    pickle_name = gen_pickle_name(imgs, 'face_recog')
-    features = do_pickle(PICKLE, pickle_name, 1, run_face_recog, imgs)
-       
-    # features = run_face_recog(imgs) 
+    pickle_name = gen_pickle_name(imgs, 'fc7')
+
+    features, preds = do_pickle(PICKLE, pickle_name, 2, run_caffe, imgs, names)
     sanity_check_features(features)
 
-    return np.array(features)
+    return features, preds
     
 def centralize(img):
     '''
@@ -117,39 +118,83 @@ def centralize(img):
 
     return img
 
-def run_face_recog(img_files):
+def run_caffe(img_files, names):
     '''
     Main loop in which we use caffe to recognize / score each of the images
     ''' 
-    # imgs = []
-    features = []
+
+    caffe.set_mode_gpu()
+
+    net = caffe.Net(model, weights, caffe.TEST)
     
-    bad_count = 0
+    features = {}
+    features['fc7'] = []
+    features['fc8'] = []
+    features['fc6'] = []
+
+    recognized = 0
+    preds = []
+
+    # using batches because otherwise running into some memory limits...
+    imgs = []
     for i, img_file in enumerate(img_files):
-        
+
         try:
-            image = face_recognition.load_image_file(img_file)
+            img = caffe.io.load_image(img_file)
         except IOError:
-            print('bad input')
             continue
         
-        # a tuple in (top, right, bottom, left) order as wanted
-        # TODO: Check the width vs height.
-        bounding_box = (image.shape[1], image.shape[0], 0, 0) 
+        # not sure if centralizing it really helps because we aren't cropping
+        # out a bounding box from a bigger image as in the orig paper
+        if CENTER:
+            img = centralize(img)
+            
+        img = caffe.io.resize_image(img, (224,224), interp_order=3)
+        assert img.shape == (224, 224, 3), 'img shape is not 224x224'
+        imgs.append(img)
+     
+        if i != 0 and i % BATCH_SIZE == 0:
 
-        encodings = face_recognition.face_encodings(image, [bounding_box], 50)
-         
-        if len(encodings) == 1:
-            features.append(encodings[0]) 
-            pass
-        else:
-            print('len of encodings is :( ', len(encodings))
-            bad_count += 1
+            # Let's run caffe on this batch
+            net.blobs['data'].reshape(*(len(imgs), 3, INPUT_SIZE, INPUT_SIZE))
+            transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+            transformer.set_transpose('data', (2, 0, 1))
+            transformer.set_channel_swap('data', (2, 1, 0))        
 
-    print('ratio of bad encodings is ', float(bad_count)/len(img_files))
-    print('len of features is ', len(features))
-    
-    return features
+            data = np.asarray([transformer.preprocess('data', img) for img in imgs])
+
+            final_output = net.forward_all(data=data)
+            probs = final_output['prob']
+            for prob in probs:
+                assert np.linalg.norm(prob) != 0, 'prob = 0' 
+                guess = int(prob.argmax())
+                conf = prob[guess]
+                # print('name was ', names[guess], 'confidence is ', conf)
+                name = names[guess]
+                if conf > THRESHOLD:
+                    recognized += 1
+                    name += '++'
+                else:
+                    name += '--'
+
+                preds.append(name)
+            
+            for layer in features:
+                output = net.blobs[layer].data
+                for j, row in enumerate(output):
+                    assert np.linalg.norm(row) != 0, 'output = 0'
+                    features[layer].append(np.copy(row))
+ 
+            # reset imgs for the next batch
+            imgs = []
+
+    print('recognized = ', recognized)
+
+    sanity_check_features(features)
+    for layer in features:
+        features[layer] = np.array(features[layer])
+
+    return features, preds
 
 #FIXME: Combine these two functions
 def gen_pickle_name(imgs, feature_layer):
@@ -182,22 +227,22 @@ def random_clustering(all_feature_vectors, func, *args, **kwargs):
     clusters = func(**kwargs).fit(all_feature_vectors)
     return clusters
 
-def get_labels(kmeans, imgs):
+def get_labels(kmeans, preds, names, imgs):
     '''
     '''
     # Visualizing the labels_ - this is comman to all the clustering
     # algorithms..
-
     label_names = {}
     for i, label in enumerate(kmeans.labels_):
 
-        # predicted_name = preds[i]
+        predicted_name = preds[i]
         file_name = imgs[i]
+
         label = str(label)
         if label not in label_names:
             label_names[label] = []
 
-        label_names[label].append(file_name)
+        label_names[label].append((predicted_name, file_name))
     
     return label_names
 
@@ -223,12 +268,16 @@ def process_clusters(label_names, name=''):
 
     for l in label_names:
 
+        # FIXME: Save this in a nice format to a file
+        # print('label is ', l)
+        # print(label_names[l])
+
         # Let's use opencv to display imgs one by one here in this cluster
         if DISP_IMGS:
             wait = raw_input("press anything to start this label")
             for label in label_names[l]:
                 
-                file_name = label
+                file_name = label[1]
                 # open the image with opencv
                 img = cv2.imread(file_name)
                 cv2.imshow('ImageWindow', img)
@@ -240,6 +289,7 @@ def process_clusters(label_names, name=''):
 
         # Let's save these in a nice view
         if SAVE_COMBINED:
+
             n = math.sqrt(len(label_names[l]))
             print('n = ', n)
             n = int(math.floor(n))
@@ -247,16 +297,18 @@ def process_clusters(label_names, name=''):
             rows = []
             for i in range(n):
                 # i is the current row that we are saving.
+                # 
                 row = []
                 for j in range(i*n, i*n+n, 1):
                     
-                    file_name = label_names[l][j]
+                    file_name = label_names[l][j][1]
                     # row.append(cv2.imread(file_name))
                     try:
                         img = Image.open(file_name)
                     except:
                         print('couldnt open img')
                         continue
+
                     row.append(img)
                 
                 rows.append(combine_imgs(row, 'horiz'))
@@ -323,11 +375,11 @@ def imgscatter(x, y, images, ax=None, zoom=1):
     ax.autoscale()
     return artists
 
-def run_tsne(all_feature_vectors, imgs):
+def run_tsne(all_feature_vectors, preds, names, imgs):
     '''
     '''
-    # assert len(all_feature_vectors) == len(preds), 'features and preds \
-            # should be same length'
+    assert len(all_feature_vectors) == len(preds), 'features and preds \
+            should be same length'
 
     # Since we don't have correct labels - maybe we should just plot it without
     # labels - will just be the same color.
@@ -355,8 +407,6 @@ def run_tsne(all_feature_vectors, imgs):
 
     hashed_names = hashlib.sha1(str(img_names)).hexdigest()
     file_name = 'tsne_plt_' + hashed_names[0:5] + '.png'
-    
-    print('tsne name is ', file_name)
     plt.savefig(file_name, dpi=1200)
     
     #FIXME: Better way to visualize this? 
@@ -401,54 +451,54 @@ def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
 
 def sanity_check_features(features):
 
-    # for layer in features:
-    for i, row in enumerate(features):
-        f1 = np.linalg.norm(row)
-        assert f1 != 0, ':((('
+    for layer in features:
+        for i, row in enumerate(features[layer]):
+            f1 = np.linalg.norm(row)
+            assert f1 != 0, ':((('
 
 def main():
 
     names = load_names()
     imgs = load_img_files()
     
-    feature_vectors = get_features(imgs, names)
-    
+    all_features, preds = get_features(imgs, names)
+    print('got features')
+
     # for clusters in [2,4,8]:
+        # # for layer in ['fc6', 'fc7', 'fc8']:
+        # for layer in ['fc8']:
 
-        # feature_vectors = all_features[layer]
+            # feature_vectors = all_features[layer]
 
-        # kmeans = random_clustering(feature_vectors, KMeans, n_clusters=clusters)
-        # labels = get_labels(kmeans, preds, names, imgs)
-        # process_clusters(labels, name=layer+'_'+ str(clusters))
+            # kmeans = random_clustering(feature_vectors, KMeans, n_clusters=clusters)
+            # labels = get_labels(kmeans, preds, names, imgs)
+            # process_clusters(labels, name=layer+'_'+ str(clusters))
 
-        # # do tsne based clustering now.
-        # Y = run_tsne(feature_vectors, preds, names, imgs)
-        # kmeans = random_clustering(Y, KMeans, n_clusters=clusters)
+            # # do tsne based clustering now.
+            # Y = run_tsne(feature_vectors, preds, names, imgs)
+            # kmeans = random_clustering(Y, KMeans, n_clusters=clusters)
 
-        # tsne_labels = get_labels(kmeans, preds, names, imgs)
-        # process_clusters(tsne_labels, name='tsne'+ '_' + layer +'_'+  str(clusters))
+            # tsne_labels = get_labels(kmeans, preds, names, imgs)
+            # process_clusters(tsne_labels, name='tsne'+ '_' + layer +'_'+  str(clusters))
 
             # other methods?
 
-    
-    clusters = 8
-    kmeans = random_clustering(feature_vectors, KMeans, n_clusters=clusters)
-    print('kmeans clustering done....')
-    labels = get_labels(kmeans, imgs)
-    process_clusters(labels, name=str(clusters))
-    print('done with clustering..!')
+    feature_vectors = all_features['fc7'] 
+    Y = run_tsne(feature_vectors, preds, names, imgs)
 
-    Y = run_tsne(feature_vectors, imgs)
-    # tsne_labels = get_labels(kmeans, preds, names, img)
+    # kmeans = random_clustering(Y, KMeans, n_clusters=clusters)
+
+    # tsne_labels = get_labels(kmeans, preds, names, imgs)
     # process_clusters(tsne_labels, name='tsne'+ '_' + layer +'_'+  str(clusters))
 
-    DBS = random_clustering(feature_vectors, DBSCAN, eps=0.3)
-    labels = get_labels(DBS, imgs)
-    process_clusters(labels, name='DBS' + '_'+ 'fc8')
+    # DBS = random_clustering(feature_vectors, DBSCAN, eps=0.3)
+    # labels = get_labels(DBS, preds, names, imgs)
+    # process_clusters(labels, name='DBS' + '_'+ 'fc8')
      
-    AP = random_clustering(feature_vectors, AffinityPropagation)
-    labels = get_labels(AP, imgs)
-    process_clusters(labels, name='AP' +'_'+ 'fc8')
+    # AP = random_clustering(feature_vectors, AffinityPropagation)
+    # labels = get_labels(AP, preds, names, imgs)
+    # process_clusters(labels, name='AP' +'_'+ 'fc8')
+
 
 if __name__ == '__main__':
 
