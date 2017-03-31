@@ -155,8 +155,6 @@ def tsne(X = Math.array([]), no_dims = 2, initial_dims = 50, perplexity = 30.0):
 		if (iter + 1) % 10 == 0:
 			C = Math.sum(P * Math.log(P / Q));
 			print "Iteration ", (iter + 1), ": error is ", C
-                        if C < 1.00:
-                            break
 
 		# Stop lying about P-values
 		if iter == 100:
