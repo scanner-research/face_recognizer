@@ -183,11 +183,14 @@ def random_clustering(all_feature_vectors, func, *args, **kwargs):
 
 def get_labels(kmeans, imgs):
     '''
+    Combines file_names for each of label elements the labels_ - this is comman to all the clustering
+    algorithms.
+    TODO: Also add each of the feature vectors to the list so we can take
+    mean/std etc of those.
     '''
-    # Visualizing the labels_ - this is comman to all the clustering
-    # algorithms..
-
     label_names = {}
+
+    # kmeans.labels_ is the label assigned to each point.
     for i, label in enumerate(kmeans.labels_):
         
         file_name = imgs[i]
@@ -337,6 +340,7 @@ def run_tsne(all_feature_vectors, imgs, args):
 
 def tsne_pic_plot(all_feature_vectors, Y, imgs):
     '''
+    FIXME: Need to resize each image to something small.
     ''' 
     x = []
     y = []
@@ -363,6 +367,8 @@ def tsne_pic_plot(all_feature_vectors, Y, imgs):
     
 def tsne_color_plot(all_feature_vectors, Y, imgs):
     '''
+    FIXME: Cycles through limited colors still...
+
     all_feature vectors are actually not required...
     '''
     assert len(all_feature_vectors) == len(Y) == len(imgs), 'all \
@@ -479,6 +485,8 @@ def score_cluster(cluster):
     return float(val) / len(cluster)
 
 def main():
+    
+    start = time.time()
 
     args = ArgParser().args 
     imgs = load_img_files(args)
@@ -491,14 +499,12 @@ def main():
     '''
     AP - Not scalable, but best performance?
     Others all seem to scale quite well to large datasets.
+    Just using a subset of data so can run it easily on AP and compare
+    performance.
     '''
-    train, test, train_imgs, test_imgs = train_test_split(feature_vectors, imgs,
-            test_size=0.7)
+    train, _, train_imgs, _ = train_test_split(feature_vectors, imgs,
+            train_size=0.5)
      
-    # t-sne seems to work here, but not when we are randomly shuffling these...
-    # train = feature_vectors[0:4000]
-    # train_imgs = imgs[0:4000]
-
     unique_names = get_names(imgs)
     print('num of unique names are ', len(unique_names))
 
@@ -510,7 +516,6 @@ def main():
     cluster_algs = []
 
     if args.ap: 
-        n = len(feature_vectors)
         # divide it up into n-groups and then do stuff...
         # mini_features = feature_vectors[2000:4000]
         cluster_algs.append((random_clustering(feature_vectors,
@@ -557,9 +562,11 @@ def main():
             if len(labels[l]) > 20:
                 label_lens.append(len(labels[l]))
         
+        print('smallest label is ', min(label_lens))
         print('biggest label is ', max(label_lens))
         process_clusters(labels, args, name=name)
 
+    print('took {} seconds'.format(time.time() - start))
 
 if __name__ == '__main__': 
 
