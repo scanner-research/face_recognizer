@@ -1,5 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
+import pylab as Plot
+
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.cbook import get_sample_data
 import pickle
@@ -7,8 +9,9 @@ import hashlib
 import random
 
 from tsne import *
-from sklearn.cluster import KMeans, AffinityPropagation, DBSCAN
-from sklearn.cluster import AgglomerativeClustering as AC
+from sklearn.cluster import KMeans, AffinityPropagation, DBSCAN, Birch
+from sklearn.cluster import SpectralClustering, AgglomerativeClustering,MeanShift
+
 from sklearn.model_selection import train_test_split
 
 from PIL import Image
@@ -21,30 +24,26 @@ from helper import *
 from sklearn import preprocessing
 from collections import defaultdict
 
-# Arbitrarily chosen - because it seemed to be identifying people correctly
-PICKLE = True
-TSNE_PICKLE = False
+from sklearn.manifold import TSNE
 
 # Use opencv to display images in same cluster (on local comp)
 DISP_IMGS = False
 SAVE_COMBINED = True
 
-DATA_DIR = 'data'
-# Change this appropriately
-
-IMG_DIRECTORY = os.path.join(DATA_DIR, 'vgg_face_dataset/dataset_images/')
-
 def load_img_files(args):
+    
+    # So we can append name to the end.
+    if args.dataset[-1] != '/':
+        args.dataset += '/'
+    
+    img_directory = os.path.join('data', args.dataset)
+    file_names = os.listdir(img_directory)
 
-    file_names = os.listdir(IMG_DIRECTORY)
     imgs = []
     file_names.sort()
 
     for i, name in enumerate(file_names):	
-        imgs.append(IMG_DIRECTORY + name)  	
-        # # Save every n-th image
-        # if i % 20 == 0:
-            # imgs.append(IMG_DIRECTORY + name)  	
+        imgs.append(img_directory + name)  	
     
     return imgs
 
@@ -63,14 +62,15 @@ def get_features(imgs, args):
     else:
         func = run_open_face
 
-    features, names = do_pickle(PICKLE, pickle_name, 1, func, imgs, args)   
+    features, names = do_pickle(args.pickle, pickle_name, 1, func, imgs, args)   
      
     # Let's normalize the features
     # Might also want to try scaling them.
-    # features = preprocessing.normalize(features, norm='l2')
+    if args.normalize:
+        features = preprocessing.normalize(features, norm='l2')
     
-    # Need to test this out:
-    # features = preprocessing.scale(features)
+    if args.scale:
+        features = preprocessing.scale(features)
 
     sanity_check_features(features)
     
@@ -92,7 +92,8 @@ def run_open_face(img_files, args):
         
         # if face has been cropped from before, then do_bb=False.
         try:
-            feature_vector, path = of.get_rep(img_file, do_bb=False)
+            feature_vector, path = of.get_rep(img_file, do_bb=args.do_bb,
+            new_dir='data/bb_dataset')
         except Exception:
             failed_to_load += 1
             continue
@@ -148,19 +149,14 @@ def gen_pickle_name(imgs, args):
     Use hash of file names + which classifier we're using
     """
     hashed_input = hashlib.sha1(str(imgs)).hexdigest() 
-    movie = IMG_DIRECTORY.split('/')[-2]
-    # movie = ''
-    # print('in gen pickle name - movie = ', movie)
+    movie = args.dataset.split('/')[-2]
 
     if args.openface:
         cl_name = 'OPEN_FACE'
     else:
         cl_name = 'FR'
 
-    name = movie + '_' + hashed_input[0:5] + '_' + cl_name
-
-    # name = hashed_input + '_' + cl_name
-    # print('in gen pickle name - movie = ', movie)
+    name = movie + '_' + str(args.do_bb) + '_' + hashed_input[0:5] + '_' + cl_name
 
     directory = "./pickle/"
     return directory + name + ".pickle"
@@ -212,20 +208,15 @@ def process_clusters(label_names, args, name=''):
     '''
     
     scores = []
+
     for l in label_names:
 
         # Let's save these in a nice view
-        score = (score_cluster(label_names[l]))    
-        scores.append(score)
-        print('label name is ', l)
-        print('len = ', len(label_names[l]))
-        print('score = ', score)
+        score = score_cluster(label_names[l])
+        scores.append((score, len(label_names[l])))
 
-        if args.save_cluster_imgs:
+        if score < 0.60:
             
-            if len(label_names[l]) > 20:
-                continue
-
             n = math.sqrt(len(label_names[l]))
             n = int(math.floor(n))
             
@@ -248,13 +239,11 @@ def process_clusters(label_names, args, name=''):
 
             final_image = combine_imgs(rows, 'vertical')
 
-            file_name = get_cluster_image_name(name, label_names[l], l)
+            file_name = get_cluster_image_name(name, label_names[l], l, args)
             
             final_image.save(file_name, quality=100)
 
-
-        # Let's use opencv to display imgs one by one here in this cluster
-        if DISP_IMGS:
+        if args.disp_pics:
             wait = raw_input("press anything to start this label")
             for label in label_names[l]:
                 
@@ -267,7 +256,17 @@ def process_clusters(label_names, args, name=''):
                     break
                 # wait for a keypress to go to next image
 
-def get_cluster_image_name(name, lst, label):
+    # sort according to the length of the clusters
+    scores.sort(key=lambda x: x[1])
+    
+    total = 0
+    for s in scores:
+        print('num = {}, score = {}'.format(s[1], s[0]))
+        total += s[0]
+    
+    print('average score = ', float(total)/len(scores))
+
+def get_cluster_image_name(name, lst, label, args):
     '''
     Generates a unique name for the cluster_image - hash of the img names
     of the cluster should ensure that things don't clash.
@@ -275,7 +274,7 @@ def get_cluster_image_name(name, lst, label):
 
     hashed_input = hashlib.sha1(str(lst)).hexdigest()
 
-    movie = IMG_DIRECTORY.split('/')[-2]
+    movie = args.dataset.split('/')[-2]
 
     name = 'results/' + name + '_' + movie + '_' + hashed_input[0:5] + '_' + label + '.jpg'
 
@@ -323,17 +322,27 @@ def imgscatter(x, y, images, ax=None, zoom=1):
     ax.autoscale()
     return artists
 
-def run_tsne(all_feature_vectors, imgs):
-    '''
-    '''
+def tsne_wrapper(features):
+    tsne = TSNE(verbose=True, init='pca', learning_rate=500)
+    return tsne.fit_transform(features) 
 
+
+def run_tsne(all_feature_vectors, imgs, args):
+    '''
+    '''
     pickle_name = tsne_gen_pickle_name(all_feature_vectors) 
-    Y = do_pickle(TSNE_PICKLE, pickle_name, 1, tsne, all_feature_vectors)
+    Y = do_pickle(args.tsne_pickle, pickle_name, 1, tsne_wrapper, all_feature_vectors)
+    
+    return Y
+
+def tsne_pic_plot(all_feature_vectors, Y, imgs):
+    '''
+    ''' 
     x = []
     y = []
     img_names = []
     
-    # TODO: Might want to resize the images?
+    # TODO: Resize the images.
     for i, coord in enumerate(Y):
 
         assert len(coord) == 2, 'coord not 2?'
@@ -347,13 +356,29 @@ def run_tsne(all_feature_vectors, imgs):
     ax.scatter(x,y)
     
     hashed_names = hashlib.sha1(str(img_names)).hexdigest()
-    file_name = 'tsne_plt_' + hashed_names[0:5] + '.png'
+    file_name = 'tsne_plt_pics' + hashed_names[0:5] + '.png'
     
     print('tsne name is ', file_name)
     plt.savefig(file_name, dpi=1200)
     
-    return Y
+def tsne_color_plot(all_feature_vectors, Y, imgs):
+    '''
+    all_feature vectors are actually not required...
+    '''
+    assert len(all_feature_vectors) == len(Y) == len(imgs), 'all \
+            must be equal'
+
+    hashed_names = hashlib.sha1(str(imgs)).hexdigest()
+    file_name = 'tsne_plt_color' + hashed_names[0:5] + '.png'
+
+    print('tsne name is ', file_name)
     
+    labels = get_tsne_names(imgs)
+    assert len(labels) == len(imgs), 'simple assert'
+
+    Plot.scatter(Y[:,0], Y[:,1], 20, labels);
+    Plot.savefig(file_name, dpi=1200)
+
 def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
     '''
     General function to handle pickling.
@@ -388,6 +413,40 @@ def sanity_check_features(features):
     for i, row in enumerate(features):
         f1 = np.linalg.norm(row)
         assert f1 != 0, ':((('
+
+def get_tsne_names(paths):
+    '''
+    Returns a num for each unique name in paths - so this can be used for
+    tsne-colored graphs.
+    '''
+    names = []
+    num = 0
+    d = {}
+
+    for p in paths:
+        name = get_name_from_path(p)
+        if name not in d:
+            d[name] = num
+            names.append(num)
+            num += 1
+        else:
+            names.append(d[name])
+
+    return names
+
+def get_names(paths):
+    '''
+    Returns a list of unique names in paths.
+    '''
+    names = []
+    d = {}
+
+    for p in paths:
+        name = get_name_from_path(p)
+        if name not in names:
+            names.append(name)
+
+    return names
 
 def get_name_from_path(path):
     '''
@@ -424,26 +483,35 @@ def main():
     args = ArgParser().args 
     imgs = load_img_files(args)
 
-    feature_vectors, new_imgs = get_features(imgs, args) 
-    imgs = new_imgs
-    print('len of feature vectors is ', len(feature_vectors))
-     
+    feature_vectors, imgs = get_features(imgs, args) 
+    print('orig len of feature vectors is ', len(feature_vectors))
+    
+    assert len(feature_vectors) == len(imgs), 'features=images'
+
     '''
     AP - Not scalable, but best performance?
     Others all seem to scale quite well to large datasets.
     '''
-    # quick test.
-    train, test, imgs, test_imgs = train_test_split(feature_vectors, imgs,
-            test_size=0.6)
-    feature_vectors = train
-    print('len of feature vectors is ', len(feature_vectors))
+    train, test, train_imgs, test_imgs = train_test_split(feature_vectors, imgs,
+            test_size=0.7)
+     
+    # t-sne seems to work here, but not when we are randomly shuffling these...
+    # train = feature_vectors[0:4000]
+    # train_imgs = imgs[0:4000]
 
+    unique_names = get_names(imgs)
+    print('num of unique names are ', len(unique_names))
+
+    # # quick test just on part of the data.
+    feature_vectors = train
+    imgs = train_imgs
+
+    print('len of feature vectors is ', len(feature_vectors))
     cluster_algs = []
 
     if args.ap: 
         n = len(feature_vectors)
         # divide it up into n-groups and then do stuff...
-
         # mini_features = feature_vectors[2000:4000]
         cluster_algs.append((random_clustering(feature_vectors,
             AffinityPropagation, damping=0.7), 'AP'))
@@ -453,19 +521,32 @@ def main():
         cluster_algs.append((random_clustering(feature_vectors, KMeans,
                         n_clusters=args.clusters), name))
     
-    if args.dbs:
+    if args.dbscan:
         cluster_algs.append((random_clustering(feature_vectors, DBSCAN,
-            eps=0.3), 'DBScan'))
+            eps=0.5), 'DBScan'))
     
     if args.ac:
-        print('args.clusters is ', args.clusters)
-        cluster_algs.append((random_clustering(feature_vectors, AC,
-                n_clusters=args.clusters), 'AC'))
+        cluster_algs.append((random_clustering(feature_vectors,
+            AgglomerativeClustering,n_clusters=args.clusters), 'AC'))
+
+    if args.mean_shift:
+        cluster_algs.append((random_clustering(feature_vectors,
+            MeanShift,cluster_all=False), 'MeanShift'))
+
+    if args.birch:
+        cluster_algs.append((random_clustering(feature_vectors, Birch,
+            n_clusters=args.clusters), 'Birch'))
 
     if args.tsne:
-        Y = run_tsne(feature_vectors, imgs)
-        cluster_algs.append((random_clustering(Y, AC,
-                n_clusters=10), 'tsne+AC'))
+        Y = run_tsne(feature_vectors, imgs, args)
+
+        if args.tsne_pic_plot:
+            tsne_pic_plot(feature_vectors, Y, imgs)
+        if args.tsne_color_plot:
+            tsne_color_plot(feature_vectors, Y, imgs)
+
+        cluster_algs.append((random_clustering(Y, AgglomerativeClustering,
+                n_clusters=args.clusters), 'tsne+AC'))
         
 
     for c, name in cluster_algs:

@@ -20,6 +20,8 @@ def Hbeta(D = Math.array([]), beta = 1.0):
 	# Compute P-row and corresponding perplexity
 	P = Math.exp(-D.copy() * beta);
 	sumP = sum(P);
+        assert sumP != 0, 'In Hbeta, P were all 0'
+
 	H = Math.log(sumP) + beta * Math.sum(D * P) / sumP;
 	P = P / sumP;
 	return H, P;
@@ -49,6 +51,8 @@ def x2p(X = Math.array([]), tol = 1e-5, perplexity = 30.0):
 		betamax =  Math.inf;
 		Di = D[i, Math.concatenate((Math.r_[0:i], Math.r_[i+1:n]))];
 		(H, thisP) = Hbeta(Di, beta[i]);
+                if H is None:
+                    continue
 
 		# Evaluate whether the perplexity is within tolerance
 		Hdiff = H - logU;
@@ -71,6 +75,9 @@ def x2p(X = Math.array([]), tol = 1e-5, perplexity = 30.0):
 
 			# Recompute the values
 			(H, thisP) = Hbeta(Di, beta[i]);
+                        if H is None:
+                            break
+
 			Hdiff = H - logU;
 			tries = tries + 1;
 
@@ -163,7 +170,6 @@ def tsne(X = Math.array([]), no_dims = 2, initial_dims = 50, perplexity = 30.0):
 
 	# Return solution
 	return Y;
-
 
 if __name__ == "__main__":
 	print "Run Y = tsne.tsne(X, no_dims, perplexity) to perform t-SNE on your dataset."
