@@ -65,6 +65,12 @@ class ArgParser():
                             default=False, type='Bool')
         parser.add_argument("--mean_shift", help="MeanShift",
                             default=False, type='Bool')
+        parser.add_argument("--approx_rank_order", help="Rank Order algorithm",
+                            default=False, type='Bool')
+        parser.add_argument("--ro_neighbors", help="num neighbors to use \
+                            in rank order clustering", default=200, type=int)
+        parser.add_argument("--ro_alg", help="approx vs exact rank ordering",
+                            default="approx", type=str)
 
         parser.add_argument("--tsne", help="TSNE",
                             default=False, type='Bool')
@@ -80,6 +86,9 @@ class ArgParser():
                             default=True, type='Bool')
         parser.add_argument("--tsne_pickle", help="tsne pickle",
                             default=True, type='Bool')
+
+        parser.add_argument("--data_size", help="percent of data to run on",
+                            default=0.3, type=float)
 
         parser.add_argument("--do_bb", help="do bounding box \
                with openface or treat full image as bb", 

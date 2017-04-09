@@ -25,6 +25,8 @@ from sklearn import preprocessing
 from collections import defaultdict
 
 from sklearn.manifold import TSNE
+from rank_order_cluster import Rank_Order
+from util import *
 
 # Use opencv to display images in same cluster (on local comp)
 DISP_IMGS = False
@@ -46,6 +48,18 @@ def load_img_files(args):
         imgs.append(img_directory + name)  	
     
     return imgs
+
+def print_clusters(clusters, name):
+
+    label_lens = []
+    for l in clusters:
+        label_lens.append(len(clusters[l]))
+        
+    print('************************************')
+    print('name of cluster alg is ', name)
+    print('len of clusters is ', len(clusters))
+    print('smallest label is ', min(label_lens))
+    print('biggest label is ', max(label_lens))
 
 def get_features(imgs, args):
     '''
@@ -175,15 +189,15 @@ def random_clustering(all_feature_vectors, func, *args, **kwargs):
     '''
     returns a clusters object - this depends on the function, for eg. will
     return a kmeans obj for kmeans, or dbscan object for dbscan - but all
-    these have .labels - which is what I use later.
+    these have .clusters - which is what I use later.
     '''
 
     clusters = func(**kwargs).fit(all_feature_vectors)
     return clusters
 
-def get_labels(kmeans, imgs):
+def get_clusters(kmeans, imgs, features):
     '''
-    Combines file_names for each of label elements the labels_ - this is comman to all the clustering
+    Combines file_names for each of label elements the clusters_ - this is comman to all the clustering
     algorithms.
     TODO: Also add each of the feature vectors to the list so we can take
     mean/std etc of those.
@@ -193,16 +207,106 @@ def get_labels(kmeans, imgs):
     # kmeans.labels_ is the label assigned to each point.
     for i, label in enumerate(kmeans.labels_):
         
-        file_name = imgs[i]
         label = str(label)
         if label not in label_names:
             label_names[label] = []
 
-        label_names[label].append(file_name)
+        file_name = imgs[i]
+        label_names[label].append((file_name, features[i]))
     
     return label_names
 
+def is_in_all_clusters(cluster, el, combined_clusters):
+    '''
+    Every element of cluster should be 'compatible' with el across all
+    clusters.
 
+    Crazy inefficient.
+    '''
+    for c in cluster:
+        if not is_compatible(c[0], el[0], combined_clusters):
+            return False
+
+    return True
+
+def is_compatible(file_1, file_2, combined_clusters):
+    '''
+    returns False, if file_1, file_2 are not together in each of the clusters
+    in cluster paths.
+    if they are together, then it is compatible, and returns True.
+    '''
+    for cluster_algs in combined_clusters:
+        # each cluster alg has a bunch of labels, and lists (path, feature)
+        # associated with them.
+        for k, label in cluster_algs.iteritems():
+            # elements of label are (file_name, feature_vec) tuples
+            
+            if check_file(file_1, label) != check_file(file_2, label):
+                return False
+     
+    # print('returning True for compatible!!!!')
+    # print(file_1)
+    # print(file_2)
+
+    return True
+
+def check_file(file_name, label):
+    '''
+    file is path, lablel is list of (path, features)
+    if file is in list[0]'s, then returns true.
+    '''
+    for l in label:
+        path = l[0]
+        if path == file_name:
+            return True
+
+    return False
+
+def vote_clusters(combined_clusters, args):
+    '''
+    combined_clusters: list of 'label' dicts.
+    label_dict: 'label_name': list of (img_name, feature_vector) 
+
+    Algorithm idea:
+
+    @ret: better_label_dict: 
+    '''
+    better_label_dict = defaultdict(list) 
+    
+    #TODO: Choose base_clusters to be the longer of the two.
+    base_clusters = combined_clusters[0]
+    
+    for name, cluster in base_clusters.iteritems():
+ 
+        for el in cluster:
+
+            # Check if it belongs to any of the clusters so far.
+            assigned_cluster = False
+            
+            # FIXME: Very inefficient.
+            for k, new_cluster in better_label_dict.iteritems():
+                # new_cluster is a list of guys. The label 'key' is the 0th
+                # guys file name
+                if is_in_all_clusters(new_cluster, el, combined_clusters):
+                   better_label_dict[k].append(el) 
+                   assigned_cluster = True
+                   # print('el no. ', j, 'was assigned cluster!!!!!')
+                   # print('el[0] is', el[0])
+                   break
+
+            # create new cluster
+            if not assigned_cluster:
+                # print('el no. ', j, 'was not assigned cluster')
+                # print('el[0] is', el[0])
+                better_label_dict[el[0]].append(el)
+    
+    new_better_dict = defaultdict(list)
+    for k,v in better_label_dict.iteritems():
+        if len(v) > 10:
+            new_better_dict[k] = v
+
+    return new_better_dict
+        
 def process_clusters(label_names, args, name=''):
     '''
     After we get cluster set up - either with kmeans, dbscan, or other
@@ -211,15 +315,30 @@ def process_clusters(label_names, args, name=''):
     '''
     
     scores = []
-
     for l in label_names:
-
-        # Let's save these in a nice view
-        score = score_cluster(label_names[l])
+ 
+        img_names = [a[0] for a in label_names[l]]
+        score = score_cluster(img_names)
         scores.append((score, len(label_names[l])))
 
-        if score < 0.60:
-            
+        # Let's calculate the std/variance of the feature vectors in this
+        # cluster.
+        features = [a[1] for a in label_names[l]]
+        var = np.var(features, axis=0)
+        std = np.std(features, axis=0)
+        
+        if args.verbose:
+            print('---------------------------------------')
+            print('name of alg is ', name)
+            print('label is ', l)
+            unique_names = get_names(img_names) 
+            for k,v in unique_names.iteritems():
+                print('{} : {}'.format(k,v))
+
+
+        if score < 0.60: 
+            # Let's save these in a nice view
+
             n = math.sqrt(len(label_names[l]))
             n = int(math.floor(n))
             
@@ -229,7 +348,7 @@ def process_clusters(label_names, args, name=''):
                 row = []
                 for j in range(i*n, i*n+n, 1):
                     
-                    file_name = label_names[l][j]
+                    file_name = label_names[l][j][0]
                     try:
                         img = Image.open(file_name)
                     except:
@@ -242,7 +361,8 @@ def process_clusters(label_names, args, name=''):
 
             final_image = combine_imgs(rows, 'vertical')
 
-            file_name = get_cluster_image_name(name, label_names[l], l, args)
+            img_names = [a[0] for a in label_names[l]]
+            file_name = get_cluster_image_name(name, img_names, l, args)
             
             final_image.save(file_name, quality=100)
 
@@ -264,7 +384,7 @@ def process_clusters(label_names, args, name=''):
     
     total = 0
     for s in scores:
-        print('num = {}, score = {}'.format(s[1], s[0]))
+        # print('num = {}, score = {}'.format(s[1], s[0]))
         total += s[0]
     
     print('average score = ', float(total)/len(scores))
@@ -385,32 +505,6 @@ def tsne_color_plot(all_feature_vectors, Y, imgs):
     Plot.scatter(Y[:,0], Y[:,1], 20, labels);
     Plot.savefig(file_name, dpi=1200)
 
-def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
-    '''
-    General function to handle pickling.
-    @func: call this guy to get the result if pickle file not available.
-    '''
-    if not pickle_bool:
-        rets = func(*args)   
-    elif os.path.isfile(pickle_name):
-        #pickle exists!
-        with open(pickle_name, 'rb') as handle:
-            rets = pickle.load(handle)
-
-            print("successfully loaded pickle file!")    
-            handle.close()
-
-    else:
-        rets = func(*args)
-        
-        # dump it for future
-        with open(pickle_name, 'w+') as handle:
-            pickle.dump(rets, handle, protocol=pickle.HIGHEST_PROTOCOL) 
-
-        handle.close()
-
-    return rets
-
 def sanity_check_features(features):
     '''
     Just ensures that the norm of features isn't 0 - as that is clearly a bad
@@ -445,14 +539,14 @@ def get_names(paths):
     Returns a list of unique names in paths.
     '''
     names = []
-    d = {}
+    d = defaultdict(int)
 
     for p in paths:
         name = get_name_from_path(p)
-        if name not in names:
-            names.append(name)
 
-    return names
+        d[name] += 1
+
+    return d
 
 def get_name_from_path(path):
     '''
@@ -491,10 +585,9 @@ def main():
     args = ArgParser().args 
     imgs = load_img_files(args)
 
-    feature_vectors, imgs = get_features(imgs, args) 
-    print('orig len of feature vectors is ', len(feature_vectors))
+    all_features, all_imgs = get_features(imgs, args) 
     
-    assert len(feature_vectors) == len(imgs), 'features=images'
+    assert len(all_features) == len(all_imgs), 'features=images'
 
     '''
     AP - Not scalable, but best performance?
@@ -502,16 +595,17 @@ def main():
     Just using a subset of data so can run it easily on AP and compare
     performance.
     '''
-    train, _, train_imgs, _ = train_test_split(feature_vectors, imgs,
-            train_size=0.5)
-     
-    unique_names = get_names(imgs)
-    print('num of unique names are ', len(unique_names))
+    train, _, train_imgs, _ = train_test_split(all_features, all_imgs,
+            train_size=args.data_size)
+    
+    # train = all_features[0:100]
+    # train_imgs = all_imgs[0:100]
 
-    # # quick test just on part of the data.
     feature_vectors = train
     imgs = train_imgs
 
+    unique_names = get_names(imgs)
+    print('num of unique names are ', len(unique_names))
     print('len of feature vectors is ', len(feature_vectors))
     cluster_algs = []
 
@@ -553,20 +647,30 @@ def main():
         cluster_algs.append((random_clustering(Y, AgglomerativeClustering,
                 n_clusters=args.clusters), 'tsne+AC'))
         
+    if args.approx_rank_order:
+        rank_order = Rank_Order(feature_vectors,
+                num_neighbors=args.ro_neighbors, Y = imgs, alg_type=args.ro_alg)
 
+        D = rank_order.compute_all_distances()
+        clusters = rank_order.cluster_threshold_ac()
+        print(clusters)
+
+    # This part is only appropriate for sklearn cluster results
+    combined_clusters = []
     for c, name in cluster_algs:
-        labels = get_labels(c, imgs)
+        clusters = get_clusters(c, imgs, feature_vectors)
+        combined_clusters.append(clusters)
         
-        label_lens = []
-        for l in labels:
-            if len(labels[l]) > 20:
-                label_lens.append(len(labels[l]))
-        
-        print('smallest label is ', min(label_lens))
-        print('biggest label is ', max(label_lens))
-        process_clusters(labels, args, name=name)
+        print_clusters(clusters, name)    
+        process_clusters(clusters, args, name=name)
 
-    print('took {} seconds'.format(time.time() - start))
+
+    # better_clusters = vote_clusters(combined_clusters, args)
+
+    # print_clusters(better_clusters, 'better')
+    # process_clusters(clusters, args, name='better')
+
+    # print('took {} seconds'.format(time.time() - start))
 
 if __name__ == '__main__': 
 
