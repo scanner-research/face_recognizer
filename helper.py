@@ -65,7 +65,7 @@ class ArgParser():
                             default=False, type='Bool')
         parser.add_argument("--mean_shift", help="MeanShift",
                             default=False, type='Bool')
-        parser.add_argument("--approx_rank_order", help="Rank Order algorithm",
+        parser.add_argument("--rank_order", help="Rank Order algorithm",
                             default=False, type='Bool')
         parser.add_argument("--ro_neighbors", help="num neighbors to use \
                             in rank order clustering", default=200, type=int)
@@ -111,9 +111,11 @@ class ArgParser():
                             default=False, type='Bool')
 
         parser.add_argument("--save_cluster_imgs", help="save each cluster in \
+                            an nxn square ", default=False, type='Bool')
+ 
+        parser.add_argument("--save_bad_clusters", help="save each bad cluster in \
                             an nxn square ",
                             default=False, type='Bool')
- 
         # Add movie folder etc here as well.
 
         # Classifiers

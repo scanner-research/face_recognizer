@@ -1,5 +1,4 @@
 import numpy as np
-# import matplotlib.pyplot as plt
 import pylab as Plot
 
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
@@ -8,7 +7,6 @@ import pickle
 import hashlib
 import random
 
-from tsne import *
 from sklearn.cluster import KMeans, AffinityPropagation, DBSCAN, Birch
 from sklearn.cluster import SpectralClustering, AgglomerativeClustering,MeanShift
 
@@ -27,10 +25,6 @@ from collections import defaultdict
 from sklearn.manifold import TSNE
 from rank_order_cluster import Rank_Order
 from util import *
-
-# Use opencv to display images in same cluster (on local comp)
-DISP_IMGS = False
-SAVE_COMBINED = True
 
 def load_img_files(args):
     
@@ -319,6 +313,7 @@ def process_clusters(label_names, args, name=''):
  
         img_names = [a[0] for a in label_names[l]]
         score = score_cluster(img_names)
+
         scores.append((score, len(label_names[l])))
 
         # Let's calculate the std/variance of the feature vectors in this
@@ -336,7 +331,8 @@ def process_clusters(label_names, args, name=''):
                 print('{} : {}'.format(k,v))
 
 
-        if score < 0.60: 
+        if score < 0.60 and args.save_bad_clusters or args.save_cluster_imgs:
+
             # Let's save these in a nice view
 
             n = math.sqrt(len(label_names[l]))
@@ -384,7 +380,7 @@ def process_clusters(label_names, args, name=''):
     
     total = 0
     for s in scores:
-        # print('num = {}, score = {}'.format(s[1], s[0]))
+        print('num = {}, score = {}'.format(s[1], s[0]))
         total += s[0]
     
     print('average score = ', float(total)/len(scores))
@@ -644,15 +640,24 @@ def main():
         cluster_algs.append((random_clustering(Y, AgglomerativeClustering,
                 n_clusters=args.clusters), 'tsne+AC'))
         
-    if args.approx_rank_order:
+    if args.rank_order:
 
-        for threshold in [0.5, 0.6, 0.7, 0.8, 0.9]:
+        # rank_order = Rank_Order(feature_vectors,
+                # num_neighbors=args.ro_neighbors, Y = imgs,
+                # alg_type=args.ro_alg)
+
+        # D = rank_order.compute_all_distances()
+        # cluster_algs.append((random_clustering(D, AgglomerativeClustering,
+                # n_clusters=args.clusters, affinity='precomputed',
+                # linkage='complete'), 'rank_order+AC'))
+
+        for threshold in [0.2, 0.5]:
 
             rank_order = Rank_Order(feature_vectors,
                     num_neighbors=args.ro_neighbors, Y = imgs,
                     alg_type=args.ro_alg, cluster_threshold=threshold)
 
-            rank_order.compute_all_distances()
+            D = rank_order.compute_all_distances()
 
             rank_order.cluster_threshold_ac(d_type=args.ro_cluster_dist)
             print('threshold = {}, num clusters = {} '.format(threshold,

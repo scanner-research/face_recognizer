@@ -37,6 +37,8 @@ class Rank_Order():
         '''
         name = self._gen_pickle_name()
         self.D = do_pickle(True, name, 1, self._compute_all_distances)
+        self._distances_sanity_check(self.D)        
+        return self.D
 
     def _gen_pickle_name(self):
         
@@ -45,7 +47,8 @@ class Rank_Order():
         hashed_input = hashed_input1[0:5] + hashed_input2[0:5]
          
         name = './pickle/bigD_' + hashed_input +'_'+ str(self.num_neighbors) \
-                +'.pickle'
+                + '_' + self.alg_type + '.pickle'
+
         return name
 
     def _compute_all_distances(self):
@@ -56,6 +59,7 @@ class Rank_Order():
         D = np.zeros((N,N))
 
         for i in range(N):
+            print('compute distances, i = ', i)
             # compute the distance of ith element with each of the other
             # elements.
             for j in range(i, N, 1):
@@ -63,7 +67,6 @@ class Rank_Order():
                 D[j][i] = D[i][j]
  
         print('compute all distances took ', time.time() - start)
-        distances_sanity_check(D)        
         return D
 
     def _symmetric_distance(self, a, b):
@@ -170,26 +173,32 @@ class Rank_Order():
         while found_cluster:
             iteration += 1
             print('clustering iteration = ', iteration) 
-
             found_cluster = False
+            min_clusters = None
+            min_distance = float("inf")
+            
+            # try to find clusters with smallest distance.
             for i in clusters: 
-
-                # try to merge it with any of the other clusters
                 for j in clusters:
                     if i == j:
                         continue
 
                     d = self._cluster_distance(clusters, str(i), str(j),
                             d_type=d_type)
+                    
+                    if d < min_distance and d < self.cluster_threshold:
+                        min_clusters = (str(i), str(j))
+                        min_distance = d
 
-                    if d < self.cluster_threshold:
-                        # append every guy from the jth cluster to i
-                        for el in clusters[str(j)]:
-                            clusters[str(i)].append(el) 
-                        # remove the other guy from the clusters.
-                        clusters[str(j)] = None
-                        found_cluster = True
-        
+            if min_clusters is not None: 
+                for el in clusters[min_clusters[1]]:
+                    clusters[min_clusters[0]].append(el) 
+                # remove the other guy from the clusters.
+                clusters[min_clusters[1]] = None
+                found_cluster = True
+                min_clusters = None
+                min_distance = float("inf")
+
         self.clusters_ = {k:v for k,v in clusters.iteritems() if v is not None}
 
         print('clustering took ', time.time() - start)
@@ -208,7 +217,7 @@ class Rank_Order():
         
         return labels
 
-    def _cluster_distance(self, clusters, c1, c2, d_type='min'):
+    def _cluster_distance(self, clusters, c1, c2, d_type='max'):
         '''
         there are different possible ones here, will return the min of each
         pair of a,b where a \in i, b \in j as mentioned in the paper.
@@ -229,16 +238,22 @@ class Rank_Order():
             return min(distances)
         elif d_type == 'mean':
             return np.mean(np.array(distances))
+        elif d_type == 'max':
+            return max(distances)
 
 
-def distances_sanity_check(D):
-    '''
-    '''
-    # check if it is symmetric:
-    assert (np.transpose(D) == D).all(), 'should be symmetric matrix'
-
-    # basic check per row.
-    for row in D:
-        num_unique = len(set(row))
-        assert num_unique > 5, 'should be unique d values'
-
+    def _distances_sanity_check(self, D):
+        '''
+        '''
+        # check if it is symmetric:
+        assert (np.transpose(D) == D).all(), 'should be symmetric matrix'
+        assert np.isfinite(D).all(), 'all values should be finite'
+     
+        for i, row in enumerate(D):
+            num_unique = len(set(row))
+            # for j, dist in enumerate(row):                
+                # if dist > 1 and self.Y[i] != self.Y[j]:
+                    # print(self.Y[i])
+                    # print(self.Y[j])
+                    # print(dist)
+            assert num_unique > 5, 'should be unique d values'
