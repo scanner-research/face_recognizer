@@ -71,6 +71,9 @@ class ArgParser():
                             in rank order clustering", default=200, type=int)
         parser.add_argument("--ro_alg", help="approx vs exact rank ordering",
                             default="approx", type=str)
+        parser.add_argument("--ro_cluster_dist", help="what distance to use \
+                to measure cluster to cluster distance", default="min",
+                type=str)
 
         parser.add_argument("--tsne", help="TSNE",
                             default=False, type='Bool')

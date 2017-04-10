@@ -4,6 +4,7 @@ np.set_printoptions(2, suppress=True)
 import time
 import math
 from util import *
+import hashlib
 
 class Rank_Order():
 
@@ -38,8 +39,14 @@ class Rank_Order():
         self.D = do_pickle(True, name, 1, self._compute_all_distances)
 
     def _gen_pickle_name(self):
-
-        return 'test.pickle'
+        
+        hashed_input1 = hashlib.sha1(str(self.X)).hexdigest() 
+        hashed_input2 = hashlib.sha1(str(self.Y)).hexdigest()  
+        hashed_input = hashed_input1[0:5] + hashed_input2[0:5]
+         
+        name = './pickle/bigD_' + hashed_input +'_'+ str(self.num_neighbors) \
+                +'.pickle'
+        return name
 
     def _compute_all_distances(self):
 
@@ -51,14 +58,10 @@ class Rank_Order():
         for i in range(N):
             # compute the distance of ith element with each of the other
             # elements.
-            for j in range(N):
+            for j in range(i, N, 1):
                 D[i][j] = round(self._symmetric_distance(i, j), 2)
-
-                # if D[i][j] == 0 and i != j:
-                    # print('distance was 0!')
-                    # print('i: ', self.Y[i])
-                    # print('j: ', self.Y[j])
-        
+                D[j][i] = D[i][j]
+ 
         print('compute all distances took ', time.time() - start)
         distances_sanity_check(D)        
         return D
@@ -141,7 +144,7 @@ class Rank_Order():
         '''
         return self.k_ranks[a][i]
 
-    def cluster_threshold_ac(self):
+    def cluster_threshold_ac(self, cluster_threshold=None, d_type='min'):
         '''
         Use a naive implementation of Agglomerative Clustering to compute the
         clusters which merges two clusters if the distance between them is
@@ -149,6 +152,10 @@ class Rank_Order():
 
         ret: key : [1,2,...5]
         '''
+        start = time.time()
+        if cluster_threshold is not None:
+            self.cluster_threshold = cluster_threshold
+
         clusters = {}
 
         # initialize each cluster to each feature 
@@ -159,6 +166,7 @@ class Rank_Order():
 
         found_cluster = True
         iteration = 0
+
         while found_cluster:
             iteration += 1
             print('clustering iteration = ', iteration) 
@@ -170,7 +178,10 @@ class Rank_Order():
                 for j in clusters:
                     if i == j:
                         continue
-                    d = self._cluster_distance(clusters, str(i), str(j))
+
+                    d = self._cluster_distance(clusters, str(i), str(j),
+                            d_type=d_type)
+
                     if d < self.cluster_threshold:
                         # append every guy from the jth cluster to i
                         for el in clusters[str(j)]:
@@ -179,13 +190,31 @@ class Rank_Order():
                         clusters[str(j)] = None
                         found_cluster = True
         
-        clean_clusters = {k:v for k,v in clusters.iteritems() if v is not None}
-        return clean_clusters                        
+        self.clusters_ = {k:v for k,v in clusters.iteritems() if v is not None}
 
-    def _cluster_distance(self, clusters, c1, c2):
+        print('clustering took ', time.time() - start)
+        self.labels_ = self._convert_to_labels_()
+        return self.clusters_                        
+    
+    def _convert_to_labels_(self):
+        '''
+        Converts the dict self.clusters_ to the labels_ format used in sklearn.
+        '''
+        labels = np.zeros(len(self.X))
+
+        for cluster, vals in self.clusters_.iteritems():
+            for val in vals:
+                labels[val] = cluster
+        
+        return labels
+
+    def _cluster_distance(self, clusters, c1, c2, d_type='min'):
         '''
         there are different possible ones here, will return the min of each
-        pair of a,b where a \in i, b \in j.
+        pair of a,b where a \in i, b \in j as mentioned in the paper.
+
+        Another obvious thing will be to just compare the means of the
+        clusters.
         '''
         if clusters[c1] is None or clusters[c2] is None:
             return float("inf")
@@ -196,14 +225,20 @@ class Rank_Order():
             for j in clusters[c2]: 
                 distances.append(self.D[i, j])
         
-        return min(distances)
+        if d_type == 'min':
+            return min(distances)
+        elif d_type == 'mean':
+            return np.mean(np.array(distances))
 
 
 def distances_sanity_check(D):
     '''
     '''
+    # check if it is symmetric:
+    assert (np.transpose(D) == D).all(), 'should be symmetric matrix'
+
+    # basic check per row.
     for row in D:
         num_unique = len(set(row))
-        if num_unique < 5:
-            print('unique d values were', num_unique)
+        assert num_unique > 5, 'should be unique d values'
 

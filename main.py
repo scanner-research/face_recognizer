@@ -596,11 +596,8 @@ def main():
     performance.
     '''
     train, _, train_imgs, _ = train_test_split(all_features, all_imgs,
-            train_size=args.data_size)
+            train_size=args.data_size, random_state=1234)
     
-    # train = all_features[0:100]
-    # train_imgs = all_imgs[0:100]
-
     feature_vectors = train
     imgs = train_imgs
 
@@ -648,12 +645,20 @@ def main():
                 n_clusters=args.clusters), 'tsne+AC'))
         
     if args.approx_rank_order:
-        rank_order = Rank_Order(feature_vectors,
-                num_neighbors=args.ro_neighbors, Y = imgs, alg_type=args.ro_alg)
 
-        D = rank_order.compute_all_distances()
-        clusters = rank_order.cluster_threshold_ac()
-        print(clusters)
+        for threshold in [0.5, 0.6, 0.7, 0.8, 0.9]:
+
+            rank_order = Rank_Order(feature_vectors,
+                    num_neighbors=args.ro_neighbors, Y = imgs,
+                    alg_type=args.ro_alg, cluster_threshold=threshold)
+
+            rank_order.compute_all_distances()
+
+            rank_order.cluster_threshold_ac(d_type=args.ro_cluster_dist)
+            print('threshold = {}, num clusters = {} '.format(threshold,
+                len(rank_order.clusters_)))
+
+            cluster_algs.append((rank_order, 'rank_order_' + str(threshold)))
 
     # This part is only appropriate for sklearn cluster results
     combined_clusters = []
