@@ -127,9 +127,22 @@ class ArgParser():
         self.args = parser.parse_args()
 
 
-class Open_Face_Helper():
+class OpenFaceHelper():
 
-    def __init__(self, args):
+    def __init__(self, model_dir):
+        
+        # Just use default values for now, haven't experimented with others.
+        
+        modelDir = '/Users/Parimarjann/openface/models/'
+        
+        # Other stuff from open face sample.
+        dlibModelDir = os.path.join(modelDir, 'dlib')
+        openfaceModelDir = os.path.join(modelDir, 'openface')
+
+        parser.add_argument('--dlibFacePredictor', type=str, help="Path to dlib's face predictor.",
+                            default=os.path.join(dlibModelDir, "shape_predictor_68_face_landmarks.dat"))
+        parser.add_argument('--networkModel', type=str, help="Path to Torch network model.",
+                            default=os.path.join(openfaceModelDir, 'nn4.small2.v1.t7'))
 
         self.align = openface.AlignDlib(args.dlibFacePredictor)
         self.net = openface.TorchNeuralNet(args.networkModel, args.imgDim)

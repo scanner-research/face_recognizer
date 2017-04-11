@@ -57,15 +57,13 @@ def print_clusters(clusters, name):
 
 def get_features(imgs, args):
     '''
-    Checks pickle for precomputed data, otherwise runs the caffe stuff on the
+    Checks pickle for precomputed data, otherwise runs the face detector stuff on the
     all images in imgs.
     ''' 
-
     pickle_name = gen_pickle_name(imgs, args)
 
     # Add the vgg option here as well.
     if args.face_recognizer:
-        print('face recog!')
         func = run_face_recog
     else:
         func = run_open_face
@@ -89,7 +87,6 @@ def run_open_face(img_files, args):
     Uses the open face package on all the imgs - and returns the feature
     vectors.
     '''
-    print('running open face!')
     of = Open_Face_Helper(args) 
     features = []
     faces = []
