@@ -16,9 +16,6 @@ def load_img_files(args):
     file_names.sort()
 
     for i, name in enumerate(file_names):	
-        if i > 50:
-            break
-
         imgs.append(img_directory + name)  	
     
     return imgs
@@ -26,17 +23,18 @@ def load_img_files(args):
 def main():
     
     args = ArgParser().args 
-    model_dir= '/Users/Parimarjann/openface/models/'
+    model_dir= '/home/ubuntu/openface/models'
 
     # For other parameters, defaults are good for now.
     faceDB = FaceDB(open_face_model_dir=model_dir) 
     
-    dataset = 'vgg_face_dataset/dataset_images'
     imgs = load_img_files(args)
 
-    faceDB.add_base_faces_from_videos(['test_vgg'], [imgs])
+    faceDB.add_base_faces_from_videos(['scanner_hack'], [imgs])
     
-    print(faceDB.num_unique_faces())
+    print('num unique faces are ', faceDB.num_unique_faces())
+    
+    faceDB.create_cluster_images()
 
 if __name__ == '__main__': 
 

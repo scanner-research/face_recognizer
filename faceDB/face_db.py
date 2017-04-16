@@ -2,11 +2,16 @@ import pickle
 import os
 
 from collections import defaultdict
+from PIL import Image
+
 from face import Face
 from open_face_helper import OpenFaceHelper
 
 from sklearn.cluster import KMeans, AffinityPropagation, DBSCAN
 from sklearn.cluster import SpectralClustering, AgglomerativeClustering
+
+import math
+import numpy as np
 
 def random_clustering(all_feature_vectors, func, *args, **kwargs):
     '''
@@ -16,6 +21,40 @@ def random_clustering(all_feature_vectors, func, *args, **kwargs):
     '''
     clusters = func(**kwargs).fit(all_feature_vectors)
     return clusters
+
+def get_cluster_image_name(name):
+    '''
+    Generates a unique name for the cluster_image - hash of the img names
+    of the cluster should ensure that things don't clash.
+    '''
+    return name + '.jpg'
+    # hashed_input = hashlib.sha1(str(lst)).hexdigest()
+
+    # movie = args.dataset.split('/')[-2]
+
+    # name = 'results/' + name + '_' + movie + '_' + hashed_input[0:5] + '_' + label + '.jpg'
+
+    return name
+def combine_imgs(imgs, direction):
+    '''
+    '''
+    # pick the image which is the smallest, and resize the others to match it (can be arbitrary image shape here)
+    min_shape = sorted([(np.sum(i.size), i.size) for i in imgs])[0][1]
+    if 'hor' in direction:
+        min_shape = (30,30)
+
+    # imgs = [i.resize(min_shape, refcheck=False) for i in imgs]
+
+    if 'hor' in direction:
+
+        imgs_comb = np.hstack( (np.asarray( i.resize(min_shape, Image.ANTIALIAS) ) for i in imgs ) )
+        imgs_comb = Image.fromarray(imgs_comb)
+    else:
+        
+        imgs_comb = np.vstack( (np.asarray( i.resize(min_shape, Image.ANTIALIAS) ) for i in imgs ) )
+        imgs_comb = Image.fromarray(imgs_comb)
+
+    return imgs_comb
 
 class FaceDB:
 
@@ -28,7 +67,7 @@ class FaceDB:
         self.feature_extractor = feature_extractor
 
         if cluster_algs is None:
-            self.cluster_algs = ['AP']
+            self.cluster_algs = ['AC']
         
         if feature_extractor == 'openface':
             assert open_face_model_dir is not None, 'specify open face model dir'
@@ -39,7 +78,7 @@ class FaceDB:
         # Initialize previous version of the DB from disk. 
         self.faces = []
         self._load_old_faces()
-        print(len(self.faces))
+        print('num faces are ', len(self.faces))
         
         # For now, just run the AP / or whatever algorithm repeatedly to create
         # the clusters.
@@ -47,8 +86,6 @@ class FaceDB:
 
         # Initialize the trained svms (?) or whatever other classifier we
         # choose to use in the end.
-
-
 
     def add_faces_from_video(self, video_id, paths_to_face_images, frame=False):
         '''
@@ -151,6 +188,7 @@ class FaceDB:
         TODO: Reconcile different clustering algorithm results (?) -
         ensemble_clustering?
         '''
+        print('starting to cluster!')
         cluster_results = {}
         feature_vectors = [face.features for face in self.faces]
 
@@ -158,6 +196,9 @@ class FaceDB:
             if alg == 'AP': 
                 cluster_results['AP'] = random_clustering(feature_vectors,
                     AffinityPropagation, damping=0.5)
+            elif alg == 'AC':
+                cluster_results['AC'] = random_clustering(feature_vectors,
+                    AgglomerativeClustering, n_clusters=5)
             
         #FIXME: tmp thing to assign clusters 
         for alg in cluster_results:
@@ -166,11 +207,48 @@ class FaceDB:
                 self.faces[i].cluster = cluster
                 self.clusters[cluster].append(self.faces[i]) 
         
+        print('num of clusters are ', len(self.clusters))
+    
+    def create_cluster_images(self):
+        '''
+        Takes the images from each cluster and makes a montage out of them.
+        '''
+        for k, cluster in self.clusters.iteritems():
+            
+            n = math.sqrt(len(cluster))
+            n = int(math.floor(n))
+
+            rows = []
+            for i in range(n):
+                # i is the current row that we are saving.
+                row = []
+                for j in range(i*n, i*n+n, 1):
+                    
+                    file_name = cluster[j].img_path
+
+                    try:
+                        img = Image.open(file_name)
+                    except:
+                        continue
+
+                    row.append(img)
+
+                if len(row) != 0: 
+                    rows.append(combine_imgs(row, 'horiz'))
+
+            final_image = combine_imgs(rows, 'vertical')
+
+            img_names = [a.img_path for a in cluster]
+            file_name = get_cluster_image_name('test' + str(k))
+            
+            final_image.save(file_name, quality=100)
+
     def lookup_face(self, face_image):
         '''
-        Return expected identity or None if unknown
+        Return expected identity or None if unknown - use either knn or train
+        svm on each cluster for this to work.
         '''
-
+        pass
 
     def num_unique_faces(self):
         '''
@@ -178,6 +256,7 @@ class FaceDB:
         '''
         return len(self.clusters)
 
-    def num_videos_for_identity(identity_id): pass
+    def num_videos_for_identity(identity_id): 
+        pass
 
 

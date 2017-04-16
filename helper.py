@@ -99,7 +99,7 @@ class ArgParser():
 
         parser.add_argument("--dataset", help="name of dir in the data/ \
                 directory that we are going to use",
-                default='vgg_face_dataset/dataset_images', type=str)
+                default='trailers', type=str)
 
         parser.add_argument("--batch_size", help="num features to use in run",
                             default=0, type=int)
