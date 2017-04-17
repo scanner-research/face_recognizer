@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 class Face():
 
     def __init__(self, img_path, video_id = None, label = None):
@@ -15,7 +17,13 @@ class Face():
         '''
         self.img_path = img_path
         self.feature_vector = None
+
         self.video_id = video_id
         self.label = label
+        
+        # Each of the clustering algorithms, like AC, AP etc can assign this
+        # face to a different cluster, but here we only want to store the final
+        # assignment after whatever algorithms we use to determine the cluster.
+        self.cluster = None
 
 

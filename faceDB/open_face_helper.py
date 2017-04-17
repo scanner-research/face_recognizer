@@ -68,8 +68,7 @@ class OpenFaceHelper():
             bb = _css_to_rect(bounding_box)
 
         # TODO: if do_bb, then we want to save the image based on the bounding
-        # box as a new image - and return that name as well.
-        
+        # box as a new image - and return that name as well. 
         start = time.time()
         alignedFace = self.align.align(self.img_dim, rgbImg, bb,
                                   landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
@@ -81,7 +80,7 @@ class OpenFaceHelper():
         
         if do_bb:
             name = os.path.basename(imgPath)
-            name = os.path.join('bb_faces_2', name)
+            name = os.path.join(new_dir, name)
             cv2.imwrite(name, alignedFace)
             print('saved image ', name)
         else:

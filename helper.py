@@ -13,6 +13,15 @@ def str2bool(v):
   '''
   return v.lower() in ("yes", "true", "t", "1", "True")
 
+def str2list(v):
+  '''
+  used to create special type for argparse
+  '''
+  if "," in v:
+      a = v.split(",")
+  else:
+      a = v.split() 
+  return a
 
 def _css_to_rect(css):
     """
@@ -35,6 +44,7 @@ class ArgParser():
         parser = argparse.ArgumentParser()
 
         parser.register('type', 'Bool', str2bool)
+        parser.register('type', 'List', str2list)
 
         # Just set the modelDir automatically and the rest are based on that.
         modelDir = '/Users/Parimarjann/openface/models/'
@@ -107,8 +117,14 @@ class ArgParser():
         parser.add_argument("--batch_size", help="num features to use in run",
                             default=0, type=int)
         parser.add_argument("--clusters", help="num clusters for diff algs",
-                            default=8, type=int)
-
+                            default=150, type=int)
+        
+        parser.add_argument("--db_name", help="name of facedb",
+                            default="test", type=str)
+        parser.add_argument("--cluster_algs", help="comma separated list \
+                of cluster algs: AC, AP, RO supported right now", default="AC",
+                type='List')
+        
 
         parser.add_argument("--disp_pics", help="save label pictures",
                             default=False, type='Bool')
