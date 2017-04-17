@@ -90,6 +90,9 @@ class ArgParser():
         parser.add_argument("--tsne_pickle", help="tsne pickle",
                             default=True, type='Bool')
 
+        parser.add_argument("--quick_test", "--qt", help="quick test",
+                            default=False, type='Bool')
+
         parser.add_argument("--data_size", help="percent of data to run on",
                             default=0.3, type=float)
 
@@ -99,7 +102,7 @@ class ArgParser():
 
         parser.add_argument("--dataset", help="name of dir in the data/ \
                 directory that we are going to use",
-                default='trailers', type=str)
+                default='vgg_face_dataset/dataset_images', type=str)
 
         parser.add_argument("--batch_size", help="num features to use in run",
                             default=0, type=int)
