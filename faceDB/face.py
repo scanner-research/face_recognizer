@@ -16,7 +16,7 @@ class Face():
         audio/video features, other faces that it cannot be etc.
         '''
         self.img_path = img_path
-        self.feature_vector = None
+        self.features = None
 
         self.video_id = video_id
         self.label = label

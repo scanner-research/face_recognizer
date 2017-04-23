@@ -63,6 +63,9 @@ class ArgParser():
         parser.add_argument("-v", "--verbose", help="increase output \
                             verbosity",default=False,type='Bool')
 
+        parser.add_argument("--frame", help="frames to faces, or just faces",
+                            default=False, type='Bool')
+
         parser.add_argument("--ac", help="AgglomerativeClustering",
                             default=False, type='Bool')
         parser.add_argument("--kmeans", help="KMeans",
@@ -75,12 +78,19 @@ class ArgParser():
                             default=False, type='Bool')
         parser.add_argument("--mean_shift", help="MeanShift",
                             default=False, type='Bool')
+        parser.add_argument("--svm_merge", help="merge clusters with svm or not",
+                            default=False, type='Bool')
+        parser.add_argument("--random_imgs", help="select imgs randomly",
+                            default=False, type='Bool')
+        
+        # Rank order stuff
         parser.add_argument("--rank_order", help="Rank Order algorithm",
                             default=False, type='Bool')
         parser.add_argument("--ro_neighbors", help="num neighbors to use \
                             in rank order clustering", default=200, type=int)
         parser.add_argument("--ro_alg", help="approx vs exact rank ordering",
                             default="approx", type=str)
+
         parser.add_argument("--ro_cluster_dist", help="what distance to use \
                 to measure cluster to cluster distance", default="min",
                 type=str)

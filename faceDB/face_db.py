@@ -7,6 +7,7 @@ from PIL import Image
 from face import Face
 from open_face_helper import OpenFaceHelper
 from rank_order_cluster import Rank_Order
+from util import *
 
 from sklearn.cluster import KMeans, AffinityPropagation, DBSCAN
 from sklearn.cluster import SpectralClustering, AgglomerativeClustering
@@ -14,10 +15,11 @@ from sklearn.cluster import SpectralClustering, AgglomerativeClustering
 import math
 import numpy as np
 import random
+import cv2
 
 from sklearn.svm import NuSVC, SVC, LinearSVC
 
-def random_clustering(all_feature_vectors, func, *args, **kwargs):
+def _sklearn_clustering(all_feature_vectors, func, *args, **kwargs):
     '''
     returns a clusters object - this depends on the function, for eg. will
     return a kmeans obj for kmeans, or dbscan object for dbscan - but all
@@ -25,46 +27,6 @@ def random_clustering(all_feature_vectors, func, *args, **kwargs):
     '''
     clusters = func(**kwargs).fit(all_feature_vectors)
     return clusters
-
-def mix_samples(train_genuine, train_impostors):
-    """
-    Returns a single np.array with samples, and corresponding labels.
-    """
-    
-    samples = np.vstack((train_genuine, train_impostors))
-
-    labels = []
-    # Add labels: 1 - user, and 0 - impostor.
-    for i in train_genuine:
-        labels.append(1)
-    for i in train_impostors:
-        labels.append(0)
-
-    labels = np.array(labels)
-
-    #FIXME: Do a unison shuffle on these? Might help with training?
-    return samples, labels
-
-def combine_imgs(imgs, direction):
-    '''
-    '''
-    # pick the image which is the smallest, and resize the others to match it (can be arbitrary image shape here)
-    min_shape = sorted([(np.sum(i.size), i.size) for i in imgs])[0][1]
-    if 'hor' in direction:
-        min_shape = (30,30)
-
-    # imgs = [i.resize(min_shape, refcheck=False) for i in imgs]
-
-    if 'hor' in direction:
-
-        imgs_comb = np.hstack( (np.asarray( i.resize(min_shape, Image.ANTIALIAS) ) for i in imgs ) )
-        imgs_comb = Image.fromarray(imgs_comb)
-    else:
-        
-        imgs_comb = np.vstack( (np.asarray( i.resize(min_shape, Image.ANTIALIAS) ) for i in imgs ) )
-        imgs_comb = Image.fromarray(imgs_comb)
-
-    return imgs_comb
 
 class FaceDB:
 
@@ -79,14 +41,24 @@ class FaceDB:
         self.verbose = verbose
         
         self.num_clusters = num_clusters
-        self.svm_merge = svm_merge
-    
-        if cluster_algs is None:
-            self.cluster_algs = ['AP']
-        
+        self.svm_merge = svm_merge 
+        self.cluster_algs = cluster_algs
+
+        # Other parameters that I have just set at default for now.
+
+        # 0,1,2 for different levels, with 2 being most verbose
+        self.cluster_analysis_verbosity = 1
+        self.save_bad_clusters = False
+        self.torch_model = 'nn4.small2.v1.t7'
+
+        self.merge_threshold = 0.90     # For merging clusters with svm.
+        self.min_cluster_size = 10      # drop clusters with fewer
+        self.good_cluster_score = 0.70  # used for testing
+     
         if feature_extractor == 'openface':
             assert open_face_model_dir is not None, 'specify open face model dir'
-            self.open_face = OpenFaceHelper(model_dir=open_face_model_dir)
+            self.open_face = OpenFaceHelper(model_dir=open_face_model_dir,
+                            torch_model=self.torch_model)
         else:
             assert False, 'Only using open face feature extractor'
 
@@ -130,27 +102,45 @@ class FaceDB:
         above function). Don't try to add faces to any cluster etc - but just
         runs the clustering algs etc and assigns clusters to faces.
         '''
+        assert len(video_id_list) == len(paths_to_face_images_list)
 
-        assert not frame, 'Right now we assume that faces are already extracted'
-        assert len(video_id_list) == len(paths_to_face_images_list) \
-                            == len(labels), 'same length'
-
-        faces = []
-        
+        faces = [] 
         for i, vid_id in enumerate(video_id_list):
+
+            if frame:
+                assert labels is None, 'cant label frames'
+                # find new dir, based on the current dir of file
+                new_dir = os.path.dirname(paths_to_face_images_list[i][0])
+                new_dir = new_dir + '_faces'
+                mkdir_p(new_dir)
+
             for j, path in enumerate(paths_to_face_images_list[i]):
-                if labels is None:
-                    face = Face(path, vid_id)
-                else:
-                    face = Face(path, vid_id, label=labels[i][j])
+                 
+                if frame:
+                    # save files of different detected faces in the frame
+                    # TODO: Maybe deal with errors better
+                    # paths = self.open_face.frame_to_faces(path, new_dir)
+                    try:
+                        paths = self.open_face.frame_to_faces(path, new_dir)
+                    except:
+                        print('frame to face failed for path ', path)
+                        continue
+                else: 
+                    paths = [path]
+                
+                for path in paths:
+                    if labels is None:
+                        face = Face(path, vid_id)
+                    else:
+                        face = Face(path, vid_id, label=labels[i][j])
 
-                if self._already_added(face) and self.verbose:
-                    continue
+                    if self._already_added(face):
+                        continue
 
-                if self._extract_features(face):
-                    faces.append(face)
-                    if self.verbose:
-                        print('added face ', face.img_path)
+                    if self._extract_features(face):
+                        faces.append(face)
+                        if self.verbose:
+                            print('added face ', face.img_path)
          
         # Add more guys to the faces list.
         self.faces += faces
@@ -159,10 +149,25 @@ class FaceDB:
 
         with open(pickle_name, 'w+') as handle:
             pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
-
+        
+        print('exiting before clustering!')
         # Do further clustering and analysis on these faces
         self._cluster()
     
+    def _score_cluster(self, faces):
+        '''
+        Simpler score measure, similar to pairwise_precision.
+        cluster is a list of files belonging in the cluster.
+        Score = (max_same_name) / len(cluster)
+        '''
+        d = defaultdict(int)
+        for face in faces:
+            d[face.label] += 1
+
+        val = d[max(d, key=d.get)]
+
+        return float(val) / len(faces)
+
     def cluster_analysis(self, clusters):
         '''
         @clusters: given cluster dict - since we are still experimenting with
@@ -178,6 +183,77 @@ class FaceDB:
         if self.verbose:
             print('starting cluster analysis')
         
+        self._f_score(clusters)
+
+        # Assuming we know the labels, we can get the accuracy of each cluster
+        # / and other statistics about that cluster, which might help us set
+        # thresholds to better choose clusters.
+        scores = []
+        for k, faces in clusters.iteritems():
+            
+            if len(faces) < self.min_cluster_size:
+                continue
+
+            score = self._score_cluster(faces)
+            scores.append((score, len(faces))) 
+
+            # Let's calculate the std/variance of the feature vectors in this
+            # cluster. 
+            if score < self.good_cluster_score:
+                print('---------------------------------------')
+                print('going to start analyzing this bad cluster')
+            else:
+                print('**************************************')
+                print('good cluster')
+
+            features = [face.features for face in faces]
+            print('num faces: ', len(faces))
+            cohesion = self._cluster_cohesion(features)
+            cohesion = cohesion / len(features)
+            print('cohesion : ', cohesion)
+            print('score: ', score)
+ 
+            if score < 0.60 and self.cluster_analysis_verbosity >= 2:
+                print('---------------------------------------')
+                print('label is ', k)
+                unique_names = defaultdict(int)
+                for face in faces:
+                    unique_names[face.label] += 1
+                for k,v in unique_names.iteritems():
+                    print('{} : {}'.format(k,v))
+
+            if score < 0.60 and self.save_bad_clusters:
+                # Let's save these in a nice view
+                img_name = 'bad_cluster_' + k + '_' + self.db_name
+                self._save_cluster_image(faces, img_name)
+
+        # sort according to the length of the clusters
+        if self.cluster_analysis_verbosity == 2:
+            scores.sort(key=lambda x: x[1])        
+            total = 0
+            for s in scores:
+                print('num = {}, score = {}'.format(s[1], s[0]))
+                total += s[0]
+        
+            print('average score = ', float(total)/len(scores))
+    
+    def _cluster_cohesion(self, features):
+        '''
+        cluster is a list of features.
+        '''
+        row_mean = np.sum(features, axis=0)
+        row_mean /= float(len(features))
+        sum = 0
+        for feature in features:
+            sum += np.sum(np.square(row_mean - feature))
+        
+        return sum
+
+    def _f_score(self, clusters):
+        '''
+        F-score analysis. We are not assuming we know the labels here, but just
+        ignoring the faces with no labels as done in the Otto et al. paper.
+        '''
         pairwise_precision = 0
         total_pairs = 0
 
@@ -234,7 +310,7 @@ class FaceDB:
                      / (pairwise_recall_score + pairwise_precision_score)
 
         print('F score is ', f_score)
-
+    
     def _already_added(self, face):
         '''
         If faces have already been added before, don't add them again -
@@ -261,15 +337,13 @@ class FaceDB:
         '''
         Use hash of file names + which classifier we're using
         '''
-        return './pickle/' + name + '_' + self.db_name + '.pickle'
+        final_name = name + '_' + self.db_name + '_' + self.torch_model
+        return './pickle/' + final_name + '.pickle'
 
     def _extract_features(self, face):
         '''
         Extracts features for one face object.
-        '''
-        
-        #FIXME: Support option for openface itself to extract frames in the
-        # image etc.
+        ''' 
         try:
             face.features, name = self.open_face.get_rep(face.img_path,
                     do_bb=False, new_dir=None)
@@ -296,13 +370,14 @@ class FaceDB:
         print('starting to cluster!')
         cluster_results = {}
         feature_vectors = [face.features for face in self.faces]
-
+        feature_vectors = np.array(feature_vectors)
+        
         for alg in self.cluster_algs:
             if alg == 'AP': 
-                cluster_results['AP'] = random_clustering(feature_vectors,
+                cluster_results['AP'] = _sklearn_clustering(feature_vectors,
                     AffinityPropagation, damping=0.5)
             elif alg == 'AC':
-                cluster_results['AC'] = random_clustering(feature_vectors,
+                cluster_results['AC'] = _sklearn_clustering(feature_vectors,
                     AgglomerativeClustering, n_clusters=self.num_clusters)
             
             elif alg == 'RO':
@@ -310,7 +385,7 @@ class FaceDB:
                         num_neighbors=50, alg_type='approx')
 
                 D = rank_order.compute_all_distances()
-                cluster_results['RO'] = random_clustering(D, AgglomerativeClustering,
+                cluster_results['RO'] = _sklearn_clustering(D, AgglomerativeClustering,
                         n_clusters=self.num_clusters, affinity='precomputed',
                         linkage='complete')
 
@@ -328,30 +403,50 @@ class FaceDB:
 
         # Cluster ensembling Fails to work. Find a better way to do ensemble
         # clustering somehow?
-        # all_clusters = []
-        # for alg in cluster_results:
-            # assignments = []
-            # for cluster in cluster_results[alg].labels_:
-                # assignments.append(cluster)
-            # all_clusters.append(assignments)
-        
-        # all_clusters = np.array(all_clusters)
-        # consensus_clustering_labels = CE.cluster_ensembles(all_clusters,verbose = True, N_clusters_max = 200)        
     
+    def label_images(self): 
+        '''
+        makes it easier to label all the images, iterating through each cluster
+        which should be reasonably similar. 
+        And then
+            - update face object with label
+            - update img names too? 
+        '''
+        
+        for _, faces in self.main_clusters.iteritems():
+            wait = raw_input("press anything to start labeling cluster")
+            for face in faces: 
+                face_file = face.img_path
+                # if this guy exists:
+                frame_file = face.img_path
+
+                # open the image with opencv
+                img1 = cv2.imread(face_file)
+                img2 = cv2.imread(frame_file)
+                cv2.imshow('ImageWindow', img1)
+                c = cv2.waitKey()
+                if c == 27:
+                    exit(0)
+                cv2.destroyAllWindows()
+                cv2.waitKey(1)
+
+
     def _merge_clusters(self):
         '''
         Goes over self.main_clusters and tries to merge as many of them as
         possible. 
         '''
         print('len of clusters before merge is ', len(self.main_clusters))
-        for cur_label, faces in self.main_clusters.iteritems():
 
+        # TODO: Iterate over the clusters in better order (by cohesion / num
+        # faces in each cluster or some other heuristic)
+
+        for cur_label, faces in self.main_clusters.iteritems():
             features = [face.features for face in faces]
             merge_label = self._check_for_merge(features)
             if merge_label is not None:
                 self._merge_labels(merge_label, cur_label)
                 continue
-
             self._train_svm(cur_label, features)        
         
         # Clean up the clusters which were marked as None
@@ -360,6 +455,8 @@ class FaceDB:
     
     def _train_svm(self, cur_label, features):
         '''
+        TODO: Get a set of negative examples (just faces loaded into the db
+        from before from which we can randomly chose)
         '''
         negative_features = self._get_negative_features(len(features))
         X, Y = mix_samples(features, negative_features)
@@ -379,7 +476,6 @@ class FaceDB:
             # need to also update the face to point to the new cluster
             face.cluster = merge_label
             
-
         features = [face.features for face in self.main_clusters[merge_label]]
         # Should we do training of this svm again?
         self._train_svm(merge_label, features)
@@ -388,6 +484,8 @@ class FaceDB:
 
     def _check_for_merge(self, features):
         '''
+        @features: multiple feature vectors.
+
         Iterates over all the svm's we have trained so far -- and if it finds
         one worth merging into, returns its key.
         Returns the label to merge to, or None.
@@ -398,7 +496,7 @@ class FaceDB:
             # if more than THRESHOLD (75%?) of these are predicted to be 1,
             # then we go ahead and merge.
             result = sum(results) / float(len(results))
-            if result >= 1.00:
+            if result >= self.merge_threshold:
                 return label
 
         return None
@@ -409,24 +507,18 @@ class FaceDB:
         are chosen at random from a bigger dataset.
         
         TODO: get a bunch of random faces to use for this.
-        '''
-        
+        ''' 
         feature_vectors = [face.features for face in self.faces]
         return random.sample(feature_vectors, num)
 
-    def _get_cluster_image_name(self, name):
+    def _get_cluster_image_name(self, name, images):
         '''
         Generates a unique name for the cluster_image - hash of the img names
         of the cluster should ensure that things don't clash.
+
+        TODO: Use hash of images etc.
         '''
-        return name + '.jpg'
-        # hashed_input = hashlib.sha1(str(lst)).hexdigest()
-
-        # movie = args.dataset.split('/')[-2]
-
-        # name = 'results/' + name + '_' + movie + '_' + hashed_input[0:5] + '_' + label + '.jpg'
-
-        return name
+        return 'cluster_images/' + name + '.jpg'
 
     def create_cluster_images(self):
         '''
@@ -435,33 +527,38 @@ class FaceDB:
         TODO: main_clusters needs to be fixed upon.
         '''
         for k, cluster in self.main_clusters.iteritems(): 
-            n = math.sqrt(len(cluster))
-            n = int(math.floor(n))
+            img_name = self.db_name + '_' + str(k)
+            self._save_cluster_image(cluster, img_name) 
+    
+    def _save_cluster_image(self, cluster, img_name):
+        '''
+        Takes in a single cluster (of the type stored in self.main_clusters),
+        and saves an nxn image of the faces in it.
+        '''
+        n = math.sqrt(len(cluster))
+        n = int(math.floor(n))
 
-            rows = []
-            for i in range(n):
-                # i is the current row that we are saving.
-                row = []
-                for j in range(i*n, i*n+n, 1):
-                    
-                    file_name = cluster[j].img_path
+        rows = []
+        for i in range(n):
+            # i is the current row that we are saving.
+            row = []
+            for j in range(i*n, i*n+n, 1): 
+                file_name = cluster[j].img_path
+                try:
+                    img = Image.open(file_name)
+                except:
+                    continue
 
-                    try:
-                        img = Image.open(file_name)
-                    except:
-                        continue
+                row.append(img)
 
-                    row.append(img)
+            if len(row) != 0: 
+                rows.append(combine_imgs(row, 'horiz'))
 
-                if len(row) != 0: 
-                    rows.append(combine_imgs(row, 'horiz'))
+        final_image = combine_imgs(rows, 'vertical')
 
-            final_image = combine_imgs(rows, 'vertical')
-
-            img_names = [a.img_path for a in cluster]
-            file_name = self._get_cluster_image_name('test' + str(k))
-            
-            final_image.save(file_name, quality=100)
+        img_names = [a.img_path for a in cluster]
+        file_name = self._get_cluster_image_name(img_name, img_names) 
+        final_image.save(file_name, quality=100)
 
     def lookup_face(self, face_image):
         '''
