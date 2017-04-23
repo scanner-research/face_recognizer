@@ -16,6 +16,8 @@ import math
 import numpy as np
 import random
 import cv2
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 
 from sklearn.svm import NuSVC, SVC, LinearSVC
 
@@ -113,22 +115,28 @@ class FaceDB:
                 new_dir = os.path.dirname(paths_to_face_images_list[i][0])
                 new_dir = new_dir + '_faces'
                 mkdir_p(new_dir)
-
+            
+            found_face = 0
+            no_face = 0
             for j, path in enumerate(paths_to_face_images_list[i]):
                  
                 if frame:
                     # save files of different detected faces in the frame
-                    # TODO: Maybe deal with errors better
-                    # paths = self.open_face.frame_to_faces(path, new_dir)
+                    # TODO: Deal with errors better
                     try:
                         paths = self.open_face.frame_to_faces(path, new_dir)
-                    except:
+                        found_faces += 1
+                    except Exception as e:
                         print('frame to face failed for path ', path)
+                        print('Exception: ', e)
+                        no_face += 1
                         continue
                 else: 
                     paths = [path]
                 
                 for path in paths:
+                    # if we did face detection before, then path will be the
+                    # updated path of the new image.
                     if labels is None:
                         face = Face(path, vid_id)
                     else:
@@ -141,7 +149,10 @@ class FaceDB:
                         faces.append(face)
                         if self.verbose:
                             print('added face ', face.img_path)
-         
+            print('vid is = ', vid_id)
+            print('found faces = ', found_face) 
+            print('no faces in {} videos'.format(no_face))
+
         # Add more guys to the faces list.
         self.faces += faces
         # Save it on disk for future.
@@ -345,11 +356,8 @@ class FaceDB:
         Extracts features for one face object.
         ''' 
         try:
-            face.features, name = self.open_face.get_rep(face.img_path,
+            face.features = self.open_face.get_rep(face.img_path,
                     do_bb=False, new_dir=None)
-
-            if name is not None:
-                face.img_path = name
 
         except Exception:
             # if it fails to open the file for whatever reason.
@@ -425,10 +433,20 @@ class FaceDB:
                 img2 = cv2.imread(frame_file)
                 cv2.imshow('ImageWindow', img1)
                 c = cv2.waitKey()
+                print('c was ', chr(c))
                 if c == 27:
                     exit(0)
+
                 cv2.destroyAllWindows()
                 cv2.waitKey(1)
+
+                # using matplotlib
+                # fig = plt.figure()
+                # # ax = fig.add_subplot(111)
+                # # ax.plot(np.random.rand(10))
+                # img = mpimg.imread(face_file)
+                # imgplot = plt.imshow(img)
+                # plt.show()
 
 
     def _merge_clusters(self):

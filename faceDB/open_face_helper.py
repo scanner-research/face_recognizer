@@ -49,26 +49,19 @@ class OpenFaceHelper():
  
         bbs = self.align.getAllFaceBoundingBoxes(rgbImg)
         if len(bbs) == 0:
-            print('couldnt find multiple faces')
-            # bb = self.align.getAllFaceBoundingBoxes(rgbImg)
-            bb = self.align.getLargestFaceBoundingBox(rgbImg) 
-            print(bb)
             raise Exception("Unable to find a face: {}".format(img_path))
 
-        aligned_faces = []
+        orig_faces = []
+        orig_img = cv2.imread(img_path)
         for bb in bbs:
-            aligned_face = self.align.align(self.img_dim, rgbImg, bb,
-                                      landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
-            if aligned_face is None:
-                raise Exception("Unable to align image: {}".format(img_path))
+            crop_img = orig_img[bb.top():bb.bottom(),bb.left():bb.right()]
+            orig_faces.append((bb.center().x, crop_img))
 
-            aligned_faces.append((bb.center().x, aligned_face))
-
-        aligned_faces = sorted(aligned_faces, key=lambda x: x[0])
+        orig_faces = sorted(orig_faces, key=lambda x: x[0])
         
         saved_names = []
         # Now write out the sorted aligned faces:
-        for i, af in enumerate(aligned_faces):
+        for i, af in enumerate(orig_faces):
             # save aligned face 
             af = af[1]
             name = os.path.basename(img_path)
@@ -76,7 +69,7 @@ class OpenFaceHelper():
             name += chr(ord('a') + i)
             name = os.path.join(new_dir, name)
             name += '.jpg'
-            cv2.imwrite(name, aligned_face)
+            cv2.imwrite(name, af)
             saved_names.append(name)
             print('saved image ', name)
 
@@ -88,9 +81,10 @@ class OpenFaceHelper():
 
         For a single image.
         @do_bb: if True, we treat full image as the bounding box of the face.
-        else: Find all the faces in the image, and save those as new images.
+        TODO: Just get rid of the do_bb option as I have separated the face
+        detection stage. Just treat every input as the full image.
         
-        ret: [features], [names]
+        ret: features, None
         '''
         if self.verbose:
             print("Processing {}.".format(img_path))
@@ -100,19 +94,9 @@ class OpenFaceHelper():
             raise Exception("Unable to load image: {}".format(img_path))
         rgbImg = cv2.cvtColor(bgrImg, cv2.COLOR_BGR2RGB)
 
-        if self.verbose:
-            print("  + Original size: {}".format(rgbImg.shape))
-
         start = time.time()
         
-        if do_bb:
-            # bbs = align.getAllFaceBoundingBoxes(rgbImg)
-            bb = self.align.getLargestFaceBoundingBox(rgbImg)
-        else:
-            # treat the given image dimensions as the bb
-            bounding_box = (0, 0, rgbImg.shape[0], rgbImg.shape[1]) 
-            bb = _css_to_rect(bounding_box)
-            bbs = [bb]
+        bb = self.align.getLargestFaceBoundingBox(rgbImg)
 
         start = time.time()
         aligned_face = self.align.align(self.img_dim, rgbImg, bb,
@@ -123,21 +107,10 @@ class OpenFaceHelper():
         if self.verbose:
             print("  + Face alignment took {} seconds.".format(time.time() - start))
         
-        if do_bb:
-            name = os.path.basename(img_path)
-            name = os.path.join(new_dir, name)
-            cv2.imwrite(name, aligned_face)
-            print('saved image ', name)
-        else:
-            name = None
-
         start = time.time()
         rep = self.net.forward(aligned_face)
         if self.verbose:
             print("  + OpenFace forward pass took {} seconds.".format(time.time() - start))
-            print("Representation:")
-            print(rep)
-            print("-----\n")
 
-        return rep, name
+        return rep
 
