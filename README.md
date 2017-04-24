@@ -21,6 +21,8 @@ FaceDB:
 
   - Labeled Videos (In progress):
     - Friends Season 7 Favorite scenes (youtube playlist)
+      
+        https://www.youtube.com/watch?v=gyp9C4gUKiA&list=PL4VjYMnxdYuVdqqAuuURtNHY5cfNFy606
 
         - TODO:  
             need to increase the quality of pictures for labeling - somehow the
@@ -95,6 +97,7 @@ TODO:
 
 - incremental approach with incorporating new videos into the faceDB. (should
     be straightforward)
+- Torch model to caffe model
 - Bigger / other nn-models
 - Rank Order on LFIW
 - Read Ensemble clustering (and other cluster analysis stuff)

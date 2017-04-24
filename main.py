@@ -111,7 +111,7 @@ def main():
         imgs = load_img_files(args)
         print('len of imgs is ', len(imgs))
         #TODO: Can extract this based on args.dataset name
-        video_name = 'friends1'
+        video_name = 'got1'
         print('db name is ', args.db_name)
 
         faceDB = FaceDB(open_face_model_dir=model_dir, db_name=args.db_name,

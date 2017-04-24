@@ -145,9 +145,10 @@ class FaceDB:
                 if frame:
                     # save files of different detected faces in the frame
                     # TODO: Deal with errors better
+                    orig_path = path
                     try:
                         paths = self.open_face.frame_to_faces(path, new_dir)
-                        found_faces += 1
+                        found_face += 1
                     except Exception as e:
                         print('frame to face failed for path ', path)
                         print('Exception: ', e)
@@ -159,10 +160,14 @@ class FaceDB:
                 for path in paths:
                     # if we did face detection before, then path will be the
                     # updated path of the new image.
+
+                    # TODO: get rid of the unneccessary ugly conditions here
                     if labels is None:
                         face = Face(path, vid_id)
                     else:
                         face = Face(path, vid_id, label=labels[i][j])
+                    if frame: 
+                        face.orig_path = orig_path
 
                     if self._already_added(face):
                         continue
@@ -174,7 +179,7 @@ class FaceDB:
 
             print('vid is = ', vid_id)
             print('found faces = ', found_face) 
-            print('no faces in {} videos'.format(no_face))
+            print('no faces in {} given video'.format(no_face))
 
         # Add more guys to the faces list.
         self.faces += faces
