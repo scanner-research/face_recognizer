@@ -83,7 +83,12 @@ FaceDB:
 
     - TVF show playlist, with recurring characters in different roles:
 
-TODO:
+Major TODOs:
+- face tracking (useful for labeling and possibly clustering etc)
+- audio features integration (voice-id etc)
+- Read more on Ensemble clustering (and other cluster analysis stuff)
+
+Minor TODOs:
 - Improve labeling process
   - quality of displayed images
   - might use full scenes with bounding boxes instead?
@@ -95,14 +100,21 @@ TODO:
    as nice as some sort of cluster ensembling, but better than just one single
    run for a cluster.
 
+- re-run on a bunch of different clustering algorithms - particularly, maybe
+the cluster many times then choose best cluster based on heuristics like
+silhouette score could make kmeans sufficiently good as compared to
+agglomerative clustering - especially since kmeans is very sensitive to the
+starting centroids etc. (they were close anyway before on still images). Kmeans
+is probably a lot easier to scale up (using faiss etc) so this would be nice to
+know
+
 - incremental approach with incorporating new videos into the faceDB. (should
     be straightforward)
 - Torch model to caffe model
 - Bigger / other nn-models
 - Rank Order on LFIW
-- Read Ensemble clustering (and other cluster analysis stuff)
 - centroid based clustering 
-- get timings, audio associated with each frame/'face' object
+
 
 Other TODOs:- 
 
@@ -118,9 +130,4 @@ Other TODOs:-
 -- what is resampling stuff? Check the dbscan library that supported
 resampling?
 
-Parallel version of vgg daces download:
-
-Num clusters >> num faces:
-
-  - Can solve this by training an SVM on clusters we are very sure about (not
-      much std/variance)
+-- Parallel version of vgg daces download (if we want to use the full dataset...)
