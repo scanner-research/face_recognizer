@@ -122,7 +122,8 @@ def main():
         faceDB.add_base_faces_from_videos([video_name], [train_imgs],
                 labels=None, frame=args.frame)
 
-        faceDB.label_images()
+        faceDB.cluster_analysis(faceDB.main_clusters) 
+        # faceDB.label_images()
 
 if __name__ == '__main__': 
 

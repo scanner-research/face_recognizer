@@ -19,7 +19,7 @@ class Face():
         self.features = None
 
         self.video_id = video_id
-        self.label = label
+        self.label = label 
         
         # Each of the clustering algorithms, like AC, AP etc can assign this
         # face to a different cluster, but here we only want to store the final

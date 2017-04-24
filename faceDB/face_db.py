@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 from sklearn.svm import NuSVC, SVC, LinearSVC
+import time
 
 def _sklearn_clustering(all_feature_vectors, func, *args, **kwargs):
     '''
@@ -49,13 +50,17 @@ class FaceDB:
         # Other parameters that I have just set at default for now.
 
         # 0,1,2 for different levels, with 2 being most verbose
-        self.cluster_analysis_verbosity = 1
-        self.save_bad_clusters = False
+        self.cluster_analysis_verbosity = 2
+        self.save_bad_clusters = True
         self.torch_model = 'nn4.small2.v1.t7'
 
-        self.merge_threshold = 0.90     # For merging clusters with svm.
+        self.merge_threshold = 0.60     # For merging clusters with svm.
         self.min_cluster_size = 10      # drop clusters with fewer
         self.good_cluster_score = 0.70  # used for testing
+        
+        # u: unknown (usually too small faces), 'y': unknown female, 'x':
+        # unknown male.
+        self._exclude_labels = ['u', 'y', 'x']
      
         if feature_extractor == 'openface':
             assert open_face_model_dir is not None, 'specify open face model dir'
@@ -67,6 +72,8 @@ class FaceDB:
         # Initialize previous version of the DB from disk. 
         self.faces = []
         self._load_old_faces()
+        self._calculate_labeled_faces()
+
         print('num faces in the db are ', len(self.faces))
         
         # For now, just run the AP / or whatever algorithm repeatedly to create
@@ -81,6 +88,21 @@ class FaceDB:
         # Initialize the trained svms (?) or whatever other classifier we
         # choose to use in the end.
         self.svms = {}
+    def _calculate_labeled_faces(self):
+        '''
+        '''
+        # let's calculate the number of labeled faces.
+        num_labeled = 0
+        num_unlabeled = 0
+
+        for face in self.faces:
+            if face.label is None:
+                num_unlabeled += 1
+            else:
+                num_labeled += 1
+
+        print('num unlabeled faces are ', num_unlabeled)
+        print('num labeled faces are ', num_labeled)
 
     def add_faces_from_video(self, video_id, paths_to_face_images, frame=False):
         '''
@@ -149,6 +171,7 @@ class FaceDB:
                         faces.append(face)
                         if self.verbose:
                             print('added face ', face.img_path)
+
             print('vid is = ', vid_id)
             print('found faces = ', found_face) 
             print('no faces in {} videos'.format(no_face))
@@ -157,11 +180,9 @@ class FaceDB:
         self.faces += faces
         # Save it on disk for future.
         pickle_name = self._gen_pickle_name('faces')
-
         with open(pickle_name, 'w+') as handle:
             pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
         
-        print('exiting before clustering!')
         # Do further clustering and analysis on these faces
         self._cluster()
     
@@ -172,12 +193,16 @@ class FaceDB:
         Score = (max_same_name) / len(cluster)
         '''
         d = defaultdict(int)
+        total = 0
         for face in faces:
+            if face.label in self._exclude_labels:
+                continue
             d[face.label] += 1
+            total += 1
 
         val = d[max(d, key=d.get)]
 
-        return float(val) / len(faces)
+        return float(val) / total
 
     def cluster_analysis(self, clusters):
         '''
@@ -224,7 +249,7 @@ class FaceDB:
             print('cohesion : ', cohesion)
             print('score: ', score)
  
-            if score < 0.60 and self.cluster_analysis_verbosity >= 2:
+            if score < 0.80 and self.cluster_analysis_verbosity >= 2:
                 print('---------------------------------------')
                 print('label is ', k)
                 unique_names = defaultdict(int)
@@ -235,7 +260,7 @@ class FaceDB:
 
             if score < 0.60 and self.save_bad_clusters:
                 # Let's save these in a nice view
-                img_name = 'bad_cluster_' + k + '_' + self.db_name
+                img_name = 'bad_cluster_' + str(k) + '_' + self.db_name
                 self._save_cluster_image(faces, img_name)
 
         # sort according to the length of the clusters
@@ -277,6 +302,10 @@ class FaceDB:
                         continue
                     if face1.label is None and face2.label is None:
                         continue
+                    if face1.label in self._exclude_labels:
+                        continue
+                    if face2.label in self._exclude_labels:
+                        continue
 
                     # If it is a mix of labelled / unlabelled, then having
                     # labeled and unlabeled together is considered a false
@@ -305,6 +334,12 @@ class FaceDB:
                 for j, face2 in enumerate(labels): 
                     # To avoid double counting.
                     if i >= j: 
+                        continue
+                    if face1.label is None and face2.label is None:
+                        continue
+                    if face1.label in self._exclude_labels:
+                        continue
+                    if face2.label in self._exclude_labels:
                         continue
 
                     # If it is a mix of labelled / unlabelled, then having
@@ -376,6 +411,7 @@ class FaceDB:
         ensemble_clustering?
         '''
         print('starting to cluster!')
+        print('cluster algs are: ', self.cluster_algs)
         cluster_results = {}
         feature_vectors = [face.features for face in self.faces]
         feature_vectors = np.array(feature_vectors)
@@ -419,23 +455,39 @@ class FaceDB:
         And then
             - update face object with label
             - update img names too? 
-        '''
-        
-        for _, faces in self.main_clusters.iteritems():
-            wait = raw_input("press anything to start labeling cluster")
+        '''     
+        start_time = time.time()
+        print('len of mainclusters = ', len(self.main_clusters))
+        i = 0
+        for cl_name, faces in self.main_clusters.iteritems():
+            print('going to start cl_name ', cl_name)
+            print('i = ', i)
+            i += 1
+
+            prev_label = None
             for face in faces: 
+                if not face.label is None:
+                    continue
+
                 face_file = face.img_path
                 # if this guy exists:
-                frame_file = face.img_path
+                # frame_file = face.img_path
 
                 # open the image with opencv
+                print('face file is ', face_file)
                 img1 = cv2.imread(face_file)
-                img2 = cv2.imread(frame_file)
+                # img2 = cv2.imread(frame_file)
                 cv2.imshow('ImageWindow', img1)
                 c = cv2.waitKey()
-                print('c was ', chr(c))
+                # print('c was ', chr(c))
                 if c == 27:
-                    exit(0)
+                    break
+                if c == 13:
+                    # enter
+                    face.label = prev_label
+                else: 
+                    face.label = chr(c)
+                    prev_label = face.label
 
                 cv2.destroyAllWindows()
                 cv2.waitKey(1)
@@ -447,8 +499,15 @@ class FaceDB:
                 # img = mpimg.imread(face_file)
                 # imgplot = plt.imshow(img)
                 # plt.show()
+        
+        # self.faces has been updated by now!
+        pickle_name = self._gen_pickle_name('faces')
+        with open(pickle_name, 'w+') as handle:
+            pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
 
-
+        print('saved new faces!')
+        print('labeling took ', time.time() - start_time)
+ 
     def _merge_clusters(self):
         '''
         Goes over self.main_clusters and tries to merge as many of them as
@@ -460,7 +519,10 @@ class FaceDB:
         # faces in each cluster or some other heuristic)
 
         for cur_label, faces in self.main_clusters.iteritems():
-            features = [face.features for face in faces]
+            # features = [face.features for face in faces]
+            features = [face.features for face in faces if not face.label in \
+                        self._exclude_labels ]
+            print('dropped features = ', len(faces) - len(features))
             merge_label = self._check_for_merge(features)
             if merge_label is not None:
                 self._merge_labels(merge_label, cur_label)

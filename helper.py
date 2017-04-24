@@ -127,7 +127,7 @@ class ArgParser():
         parser.add_argument("--batch_size", help="num features to use in run",
                             default=0, type=int)
         parser.add_argument("--clusters", help="num clusters for diff algs",
-                            default=150, type=int)
+                            default=10, type=int)
         
         parser.add_argument("--db_name", help="name of facedb",
                             default="test", type=str)
