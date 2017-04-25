@@ -101,7 +101,8 @@ def main():
         elif args.select_n_imgs:
             train_imgs, train_labels = select_imgs(imgs, labels, 10, 100)
 
-        faceDB.add_base_faces_from_videos(['test'], [train_imgs], labels=[train_labels])
+        faceDB.add_base_faces_from_videos(['test'], [train_imgs],
+                labels=[train_labels], cluster=False)
         
         print('num unique faces are ', faceDB.num_unique_faces())
         faceDB.cluster_analysis(faceDB.main_clusters) 
@@ -122,8 +123,8 @@ def main():
         faceDB.add_base_faces_from_videos([video_name], [train_imgs],
                 labels=None, frame=args.frame)
 
-        faceDB.cluster_analysis(faceDB.main_clusters) 
         # faceDB.label_images()
+        faceDB.cluster_analysis(faceDB.main_clusters) 
 
 if __name__ == '__main__': 
 

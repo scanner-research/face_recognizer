@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 from sklearn.svm import NuSVC, SVC, LinearSVC
+from sklearn.metrics import silhouette_samples, silhouette_score
 import time
 
 def _sklearn_clustering(all_feature_vectors, func, *args, **kwargs):
@@ -54,13 +55,18 @@ class FaceDB:
         self.save_bad_clusters = True
         self.torch_model = 'nn4.small2.v1.t7'
 
-        self.merge_threshold = 0.60     # For merging clusters with svm.
+        self.merge_threshold = 0.80     # For merging clusters with svm.
         self.min_cluster_size = 10      # drop clusters with fewer
-        self.good_cluster_score = 0.70  # used for testing
+        self.good_cluster_score = 0.80  # used for testing
         
+        # ugh: this was my convention for friends
         # u: unknown (usually too small faces), 'y': unknown female, 'x':
         # unknown male.
-        self._exclude_labels = ['u', 'y', 'x']
+        # self._exclude_labels = ['u', 'y', 'x']
+
+        # convention for got:
+        # a: unknown female, s: unknown male
+        self._exclude_labels = ['a', 's', 'small', 'small ']
      
         if feature_extractor == 'openface':
             assert open_face_model_dir is not None, 'specify open face model dir'
@@ -72,7 +78,7 @@ class FaceDB:
         # Initialize previous version of the DB from disk. 
         self.faces = []
         self._load_old_faces()
-        self._calculate_labeled_faces()
+        self.num_labeled_faces = self._calculate_labeled_faces()
 
         print('num faces in the db are ', len(self.faces))
         
@@ -84,10 +90,10 @@ class FaceDB:
         
         # temporary: Need to decide on how to choose main clusters later.
         self.main_clusters = self.clusters[cluster_alg]
-
         # Initialize the trained svms (?) or whatever other classifier we
         # choose to use in the end.
         self.svms = {}
+
     def _calculate_labeled_faces(self):
         '''
         '''
@@ -103,6 +109,7 @@ class FaceDB:
 
         print('num unlabeled faces are ', num_unlabeled)
         print('num labeled faces are ', num_labeled)
+        return num_labeled
 
     def add_faces_from_video(self, video_id, paths_to_face_images, frame=False):
         '''
@@ -115,7 +122,7 @@ class FaceDB:
         pass
     
     def add_base_faces_from_videos(self, video_id_list, paths_to_face_images_list,
-            labels = None, frame=False): 
+            labels = None, frame=False, cluster=True): 
         '''
         @video_id_list: has same length as paths_to_face_images_list.
         @paths_to_face_images_list: each element is a list of images.
@@ -177,9 +184,6 @@ class FaceDB:
                         if self.verbose:
                             print('added face ', face.img_path)
 
-            print('vid is = ', vid_id)
-            print('found faces = ', found_face) 
-            print('no faces in {} given video'.format(no_face))
 
         # Add more guys to the faces list.
         self.faces += faces
@@ -189,7 +193,8 @@ class FaceDB:
             pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
         
         # Do further clustering and analysis on these faces
-        self._cluster()
+        if cluster:
+            self._cluster()
     
     def _score_cluster(self, faces):
         '''
@@ -204,6 +209,10 @@ class FaceDB:
                 continue
             d[face.label] += 1
             total += 1
+
+        # empty cluster scores 1
+        if len(d) == 0:
+            return 1
 
         val = d[max(d, key=d.get)]
 
@@ -224,7 +233,8 @@ class FaceDB:
         if self.verbose:
             print('starting cluster analysis')
         
-        self._f_score(clusters)
+        if self.num_labeled_faces != 0:
+            self._f_score(clusters)
 
         # Assuming we know the labels, we can get the accuracy of each cluster
         # / and other statistics about that cluster, which might help us set
@@ -236,7 +246,6 @@ class FaceDB:
                 continue
 
             score = self._score_cluster(faces)
-            scores.append((score, len(faces))) 
 
             # Let's calculate the std/variance of the feature vectors in this
             # cluster. 
@@ -250,11 +259,11 @@ class FaceDB:
             features = [face.features for face in faces]
             print('num faces: ', len(faces))
             cohesion = self._cluster_cohesion(features)
-            cohesion = cohesion / len(features)
             print('cohesion : ', cohesion)
             print('score: ', score)
+            scores.append((score, len(faces), cohesion)) 
  
-            if score < 0.80 and self.cluster_analysis_verbosity >= 2:
+            if score < self.good_cluster_score and self.cluster_analysis_verbosity >= 2:
                 print('---------------------------------------')
                 print('label is ', k)
                 unique_names = defaultdict(int)
@@ -270,10 +279,11 @@ class FaceDB:
 
         # sort according to the length of the clusters
         if self.cluster_analysis_verbosity == 2:
-            scores.sort(key=lambda x: x[1])        
+            scores.sort(key=lambda x: x[2])        
             total = 0
             for s in scores:
-                print('num = {}, score = {}'.format(s[1], s[0]))
+                print('num = {}, score = {}, cohesion = {}'.format(s[1], s[0],
+                    s[2]))
                 total += s[0]
         
             print('average score = ', float(total)/len(scores))
@@ -288,7 +298,8 @@ class FaceDB:
         for feature in features:
             sum += np.sum(np.square(row_mean - feature))
         
-        return sum
+        # TODO: Does this normalization make sense?
+        return float(sum) / len(features)
 
     def _f_score(self, clusters):
         '''
@@ -399,12 +410,41 @@ class FaceDB:
             face.features = self.open_face.get_rep(face.img_path,
                     do_bb=False, new_dir=None)
 
-        except Exception:
+        except Exception as e:
             # if it fails to open the file for whatever reason.
+            print('extracting features failed, Exception was: ', e)
             return False
         
         return True
- 
+    def _find_best_k(self): 
+        '''
+        Use gap?
+        So far this has been pretty inconclusive - but I think the
+        normalization technique of dividing by num users in the cluster isn't
+        the best one.
+        '''
+        X = [face.features for face in self.faces if not face.label in \
+                    self._exclude_labels]
+
+        for n_clusters in [2,8,16,22,28,32,64,128]:
+            label_clusters = defaultdict(list)
+            X = np.array(X)
+            cluster_results = _sklearn_clustering(X,
+                            AgglomerativeClustering, n_clusters=n_clusters)
+            # silhouette_avg = silhouette_score(X, cluster_labels)
+            # print("For n_clusters =", n_clusters,
+                  # "The average silhouette_score is :", silhouette_avg)
+
+            for i, cluster in enumerate(cluster_results.labels_):
+                # all features
+                label_clusters[cluster].append(X[i]) 
+
+            cohesion = 0
+            for _, features in label_clusters.iteritems():
+                cohesion += self._cluster_cohesion(features)
+            print('num clusters = ', n_clusters, 
+                  "cohesion was ", cohesion)
+
     def _cluster(self):
         '''
         Clusters the faces in self.faces.
@@ -417,8 +457,20 @@ class FaceDB:
         '''
         print('starting to cluster!')
         print('cluster algs are: ', self.cluster_algs)
+        k = self._find_best_k()
+
         cluster_results = {}
-        feature_vectors = [face.features for face in self.faces]
+        # feature_vectors = [face.features for face in self.faces]
+        feature_vectors = [face.features for face in self.faces if not face.label in \
+                    self._exclude_labels]
+        labeled_faces = [face for face in self.faces if not face.label in \
+                    self._exclude_labels]
+
+        assert len(feature_vectors) == len(labeled_faces), 'check'
+        assert (labeled_faces[0].features == feature_vectors[0]).all(),\
+                'features test'
+
+        print('ignored faces = ', len(self.faces) - len(feature_vectors))
         feature_vectors = np.array(feature_vectors)
         
         for alg in self.cluster_algs:
@@ -442,8 +494,10 @@ class FaceDB:
         # assign each image to its clusters
         for alg in cluster_results:
             for i, cluster in enumerate(cluster_results[alg].labels_):
-                self.faces[i].cluster = cluster
-                self.clusters[alg][cluster].append(self.faces[i]) 
+                # self.faces[i].cluster = cluster
+                # self.clusters[alg][cluster].append(self.faces[i]) 
+                labeled_faces[i].cluster = cluster
+                self.clusters[alg][cluster].append(labeled_faces[i]) 
         
         if self.svm_merge:
             self._merge_clusters()
@@ -462,16 +516,39 @@ class FaceDB:
             - update img names too? 
         '''     
         start_time = time.time()
-        print('len of mainclusters = ', len(self.main_clusters))
+        
+        # let's cluster first.
+        label_clusters = defaultdict(list)
+        feature_vectors = [face.features for face in self.faces]
+        feature_vectors = np.array(feature_vectors) 
+        cluster_results = _sklearn_clustering(feature_vectors,
+            AgglomerativeClustering, n_clusters=self.num_clusters)
+            
+        for i, cluster in enumerate(cluster_results.labels_):
+            # self.faces[i].cluster = cluster
+            label_clusters[cluster].append(self.faces[i]) 
+
+
+        cv2.namedWindow('image')
+
+        print('len of mainclusters = ', len(label_clusters))
+        small_images = 0
         i = 0
-        for cl_name, faces in self.main_clusters.iteritems():
+        for cl_name, faces in label_clusters.iteritems():
             print('going to start cl_name ', cl_name)
             print('i = ', i)
             i += 1
 
             prev_label = None
-            for face in faces: 
+            j = 0
+            # using while loop to support moving backwards
+            while j < len(faces): 
+                face = faces[j]
+                j += 1
+                
+                # special casing for back option.
                 if not face.label is None:
+                    print('continuing to next label')
                     continue
 
                 face_file = face.img_path
@@ -481,15 +558,34 @@ class FaceDB:
                 # open the image with opencv
                 print('face file is ', face_file)
                 img1 = cv2.imread(face_file)
+                height, width = img1.shape[:2]
+
+                # too small to judge
+                if height < 50 or width < 40:
+                    face.label = 'small'
+                    small_images += 1
+                    continue
+
                 # img2 = cv2.imread(frame_file)
-                cv2.imshow('ImageWindow', img1)
+                cv2.imshow('image', img1)
                 c = cv2.waitKey()
-                # print('c was ', chr(c))
+                print('c was ', chr(c))
                 if c == 27:
                     break
                 if c == 13:
                     # enter
                     face.label = prev_label
+                elif chr(c) == 'b':
+                    # go back one step.
+                    print('going back!!!')
+                    if j >= 2:
+                        j -= 2
+                        # so it doesn't get skipped over
+                        faces[j].label = None
+
+                    cv2.destroyAllWindows()
+                    cv2.waitKey(1)
+                    continue
                 else: 
                     face.label = chr(c)
                     prev_label = face.label
@@ -504,7 +600,8 @@ class FaceDB:
                 # img = mpimg.imread(face_file)
                 # imgplot = plt.imshow(img)
                 # plt.show()
-        
+
+        print('small images were ', small_images) 
         # self.faces has been updated by now!
         pickle_name = self._gen_pickle_name('faces')
         with open(pickle_name, 'w+') as handle:
@@ -526,8 +623,7 @@ class FaceDB:
         for cur_label, faces in self.main_clusters.iteritems():
             # features = [face.features for face in faces]
             features = [face.features for face in faces if not face.label in \
-                        self._exclude_labels ]
-            print('dropped features = ', len(faces) - len(features))
+                        self._exclude_labels]
             merge_label = self._check_for_merge(features)
             if merge_label is not None:
                 self._merge_labels(merge_label, cur_label)

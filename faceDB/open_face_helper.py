@@ -54,15 +54,21 @@ class OpenFaceHelper():
         orig_faces = []
         orig_img = cv2.imread(img_path)
         for bb in bbs:
+            # if we can't align it, then don't waste everyones time by trying
+            # to save it
+            aligned_face = self.align.align(self.img_dim, rgbImg, bb,
+                                      landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
+            if aligned_face is None:
+                continue
+
             crop_img = orig_img[bb.top():bb.bottom(),bb.left():bb.right()]
             orig_faces.append((bb.center().x, crop_img))
 
         orig_faces = sorted(orig_faces, key=lambda x: x[0])
+
         
         saved_names = []
-        # Now write out the sorted aligned faces:
         for i, af in enumerate(orig_faces):
-            # save aligned face 
             af = af[1]
             name = os.path.basename(img_path)
             name = name.replace('.jpg', '')
