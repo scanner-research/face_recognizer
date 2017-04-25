@@ -55,14 +55,14 @@ class FaceDB:
         self.save_bad_clusters = True
         self.torch_model = 'nn4.small2.v1.t7'
 
-        self.merge_threshold = 0.80     # For merging clusters with svm.
+        self.merge_threshold = 0.70     # For merging clusters with svm.
         self.min_cluster_size = 10      # drop clusters with fewer
         self.good_cluster_score = 0.80  # used for testing
         
         # ugh: this was my convention for friends
         # u: unknown (usually too small faces), 'y': unknown female, 'x':
-        # unknown male.
-        # self._exclude_labels = ['u', 'y', 'x']
+        # unknown male, z: not a face.
+        # self._exclude_labels = ['u', 'y', 'x', 'z', 'small ', 'small']
 
         # convention for got:
         # a: unknown female, s: unknown male
@@ -147,6 +147,7 @@ class FaceDB:
             
             found_face = 0
             no_face = 0
+            removed = 0
             for j, path in enumerate(paths_to_face_images_list[i]):
                  
                 if frame:
@@ -184,7 +185,7 @@ class FaceDB:
                         if self.verbose:
                             print('added face ', face.img_path)
 
-
+        # print('removed {} faces'.format(removed))
         # Add more guys to the faces list.
         self.faces += faces
         # Save it on disk for future.
@@ -236,6 +237,10 @@ class FaceDB:
         if self.num_labeled_faces != 0:
             self._f_score(clusters)
 
+        total_faces = 0
+        for k, faces in clusters.iteritems():
+            total_faces += len(faces)
+
         # Assuming we know the labels, we can get the accuracy of each cluster
         # / and other statistics about that cluster, which might help us set
         # thresholds to better choose clusters.
@@ -258,7 +263,7 @@ class FaceDB:
 
             features = [face.features for face in faces]
             print('num faces: ', len(faces))
-            cohesion = self._cluster_cohesion(features)
+            cohesion = self._cluster_cohesion(features, total_faces)
             print('cohesion : ', cohesion)
             print('score: ', score)
             scores.append((score, len(faces), cohesion)) 
@@ -288,7 +293,7 @@ class FaceDB:
         
             print('average score = ', float(total)/len(scores))
     
-    def _cluster_cohesion(self, features):
+    def _cluster_cohesion(self, features, total_features):
         '''
         cluster is a list of features.
         '''
@@ -300,6 +305,7 @@ class FaceDB:
         
         # TODO: Does this normalization make sense?
         return float(sum) / len(features)
+        # return float(sum) * (float(len(features)) / total_features)
 
     def _f_score(self, clusters):
         '''
@@ -441,7 +447,7 @@ class FaceDB:
 
             cohesion = 0
             for _, features in label_clusters.iteritems():
-                cohesion += self._cluster_cohesion(features)
+                cohesion += self._cluster_cohesion(features, len(X))
             print('num clusters = ', n_clusters, 
                   "cohesion was ", cohesion)
 

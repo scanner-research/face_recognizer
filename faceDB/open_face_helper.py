@@ -58,6 +58,9 @@ class OpenFaceHelper():
             # to save it
             aligned_face = self.align.align(self.img_dim, rgbImg, bb,
                                       landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
+
+            # TODO: Not sure why this did NOT work - some of the faces we saved
+            # still seem to have trouble to align...
             if aligned_face is None:
                 continue
 

@@ -65,13 +65,9 @@ FaceDB:
 
   - Labeled Videos (In progress):
     - Friends Season 7 Favorite scenes (youtube playlist)
-      
+        
+        - friends1
         https://www.youtube.com/watch?v=gyp9C4gUKiA&list=PL4VjYMnxdYuVdqqAuuURtNHY5cfNFy606
-
-        - TODO:  
-            need to increase the quality of pictures for labeling - somehow the
-            quality appears a lot less than when I was saving them in montages,
-            and probably led to some mislabels.
 
         - friends1: Rachel's Erotic Book
           - Main identities: Rachel, Joey, Ross
@@ -123,6 +119,21 @@ FaceDB:
           situations - throws up a huge number of clusters (~100), and while
           svm merging reduces it considerably, it was still quite high.
 
+        - friends2
+        - All major friends characters in the scenes. Once again, knowing k is
+        great, but in general the pairwise precision scores over >0.95
+        irrespective of the 'k'. (only 5 characters and nice visual quality
+            might be the reason?)
+        - pairwise recall - depends on k. With the 'correct' k = 6,8 etc, it
+        was pretty decent (~70-80%) but this can drop to ~20% if you set k=25.
+        svm_merge did not actually help too much...
+
+        - Maybe it is possible that each cluster corresponds to one scene? I
+        think there were around 2 'scenes' in this video, but it will be
+        interesting to try and generalize this - when we mix videos etc so
+        scenes would be different. Not actually sure if scenes should even
+        matter or not though (?)
+    
     - Game of Thrones (......)
         
         - 'top 10 moments' ~10 minutes
@@ -166,7 +177,8 @@ FaceDB:
 Major TODOs:
 - face tracking (useful for labeling and possibly clustering etc)
 - audio features integration (voice-id etc)
-- Read more on Ensemble clustering (and other cluster analysis stuff)
+- Read more on Ensemble clustering (and other cluster analysis stuff, for
+    instance find other useful measures besides cohesion)
 
 Minor TODOs:
 - Improve labeling process
