@@ -148,6 +148,8 @@ class FaceDB:
             found_face = 0
             no_face = 0
             removed = 0
+
+            all_paths = []
             for j, path in enumerate(paths_to_face_images_list[i]):
                  
                 if frame:
@@ -164,26 +166,31 @@ class FaceDB:
                         continue
                 else: 
                     paths = [path]
-                
+
                 for path in paths:
-                    # if we did face detection before, then path will be the
-                    # updated path of the new image.
+                    all_paths.append(path)
 
-                    # TODO: get rid of the unneccessary ugly conditions here
-                    if labels is None:
-                        face = Face(path, vid_id)
-                    else:
-                        face = Face(path, vid_id, label=labels[i][j])
-                    if frame: 
-                        face.orig_path = orig_path
+            self.open_face.save_images() 
+            print('len of all paths is ', len(all_paths))
+            for path in all_paths:
+                # if we did face detection before, then path will be the
+                # updated path of the new image.
 
-                    if self._already_added(face):
-                        continue
+                # TODO: get rid of the unneccessary ugly conditions here
+                if labels is None:
+                    face = Face(path, vid_id)
+                else:
+                    face = Face(path, vid_id, label=labels[i][j])
+                if frame: 
+                    face.orig_path = orig_path
 
-                    if self._extract_features(face):
-                        faces.append(face)
-                        if self.verbose:
-                            print('added face ', face.img_path)
+                if self._already_added(face):
+                    continue
+
+                if self._extract_features(face):
+                    faces.append(face)
+                    if self.verbose:
+                        print('added face ', face.img_path)
 
         # print('removed {} faces'.format(removed))
         # Add more guys to the faces list.

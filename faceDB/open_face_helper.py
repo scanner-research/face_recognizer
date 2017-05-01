@@ -35,6 +35,18 @@ class OpenFaceHelper():
 
         self.net = openface.TorchNeuralNet(network_model, self.img_dim)
 
+        self.images = []
+        self.image_names = []
+    
+    def save_images(self):
+        '''
+        saves the images in a batch.
+        '''
+        for i, image in enumerate(self.images):
+            name = self.image_names[i]
+            cv2.imwrite(name, af)
+            print('saved image ', name)
+
     def frame_to_faces(self, img_path, new_dir):
         '''
         @ret: [img_path1, img_path2,...]
@@ -58,10 +70,10 @@ class OpenFaceHelper():
             # to save it
             aligned_face = self.align.align(self.img_dim, rgbImg, bb,
                                       landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
-
             # TODO: Not sure why this did NOT work - some of the faces we saved
             # still seem to have trouble to align...
             if aligned_face is None:
+                print('aligned face was None!')
                 continue
 
             crop_img = orig_img[bb.top():bb.bottom(),bb.left():bb.right()]
@@ -78,9 +90,11 @@ class OpenFaceHelper():
             name += chr(ord('a') + i)
             name = os.path.join(new_dir, name)
             name += '.jpg'
-            cv2.imwrite(name, af)
+            # cv2.imwrite(name, af)
+            self.images.append(af)
+            self.image_names.append(name)
             saved_names.append(name)
-            print('saved image ', name)
+            # print('saved image ', name)
 
         return saved_names
 

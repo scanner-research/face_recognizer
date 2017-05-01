@@ -26,7 +26,8 @@ def load_img_files(args):
             i += 1
             if os.path.splitext(file)[1].lower() in ('.jpg', '.jpeg'):
                  imgs.append(os.path.join(root, file))
-             
+    
+    print('found images = {}'.format(len(imgs)))
     return imgs
 
 def get_name_from_path(path):
@@ -112,7 +113,7 @@ def main():
         imgs = load_img_files(args)
         print('len of imgs is ', len(imgs))
         #TODO: Can extract this based on args.dataset name
-        video_name = 'got1'
+        video_name = 'tripling1'
         print('db name is ', args.db_name)
 
         faceDB = FaceDB(open_face_model_dir=model_dir, db_name=args.db_name,
