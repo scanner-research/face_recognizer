@@ -36,7 +36,7 @@ class FaceDB:
 
     def __init__(self, feature_extractor = 'openface', open_face_model_dir=None,
             cluster_algs = None, db_name='test', verbose=True,
-            num_clusters=200, svm_merge=False):
+            num_clusters=200, svm_merge=False, save_bad_clusters=False):
         '''
         Specify parameters here.
         '''
@@ -52,7 +52,7 @@ class FaceDB:
 
         # 0,1,2 for different levels, with 2 being most verbose
         self.cluster_analysis_verbosity = 2
-        self.save_bad_clusters = True
+        self.save_bad_clusters = save_bad_clusters
         self.torch_model = 'nn4.small2.v1.t7'
 
         self.merge_threshold = 0.70     # For merging clusters with svm.
@@ -76,8 +76,9 @@ class FaceDB:
             assert False, 'Only using open face feature extractor'
 
         # Initialize previous version of the DB from disk. 
-        self.faces = []
-        self._load_old_faces()
+        # self.faces = []
+        # TODO: Also load the clusters (and svms?)
+        self.faces = self._load_old_faces(self.db_name)
         self.num_labeled_faces = self._calculate_labeled_faces()
 
         print('num faces in the db are ', len(self.faces))
@@ -111,15 +112,38 @@ class FaceDB:
         print('num labeled faces are ', num_labeled)
         return num_labeled
 
-    def add_faces_from_video(self, video_id, paths_to_face_images, frame=False):
+    def add_faces_from_video(self, video_id, paths_to_face_images, db_old=None,frame=False):
         '''
         For each face, ether assign it to an existing cluster (and keep track
         of that), or make a new cluster. At the end of the step, incorporate
         new clusters into global face database.
-
+        
+        @db_old: If we have the face vectors already stored in an older db.
         @frame: Is each image a frame or an already detected face?
         '''
-        pass
+        
+        # Simple case where we assume that db_old is not none.
+        print('len of faces in db is ', len(self.faces))
+        if db_old is None:
+            pass
+        else:
+            print('in add faces from video!')
+            # Let's load the faces from the old_db
+            new_faces = self._load_old_faces(db_old) 
+            # Now we need to decide what to do with these.
+            print('len of new faces is ', len(new_faces))
+        
+        # Try to merge clusters of new faces into old_faces
+        # self.faces += new_faces
+
+        # # Save it on disk for future.
+        # pickle_name = self._gen_pickle_name(self.db_name, 'faces')
+        # with open(pickle_name, 'w+') as handle:
+            # pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
+        
+        # # Do further clustering and analysis on these faces
+        # if cluster:
+            # self._cluster()
     
     def add_base_faces_from_videos(self, video_id_list, paths_to_face_images_list,
             labels = None, frame=False, cluster=True): 
@@ -162,6 +186,7 @@ class FaceDB:
                     except Exception as e:
                         print('frame to face failed for path ', path)
                         print('Exception: ', e)
+                        os.remove(path)
                         no_face += 1
                         continue
                 else: 
@@ -186,7 +211,7 @@ class FaceDB:
 
                 if self._already_added(face):
                     continue
-
+                
                 if self._extract_features(face):
                     faces.append(face)
                     if self.verbose:
@@ -196,7 +221,7 @@ class FaceDB:
         # Add more guys to the faces list.
         self.faces += faces
         # Save it on disk for future.
-        pickle_name = self._gen_pickle_name('faces')
+        pickle_name = self._gen_pickle_name(self.db_name, 'faces')
         with open(pickle_name, 'w+') as handle:
             pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
         
@@ -240,7 +265,10 @@ class FaceDB:
         '''
         if self.verbose:
             print('starting cluster analysis')
-        
+        if clusters is None: 
+            self._cluster()
+            clusters = self.main_clusters
+
         if self.num_labeled_faces != 0:
             self._f_score(clusters)
 
@@ -274,7 +302,11 @@ class FaceDB:
             print('cohesion : ', cohesion)
             print('score: ', score)
             scores.append((score, len(faces), cohesion)) 
- 
+            
+            if cohesion > 0.30 and score > 0.80:
+                img_name = 'cohesion_cluster_' + str(k) + '_' + self.db_name
+                self._save_cluster_image(faces, img_name)
+
             if score < self.good_cluster_score and self.cluster_analysis_verbosity >= 2:
                 print('---------------------------------------')
                 print('label is ', k)
@@ -397,22 +429,29 @@ class FaceDB:
 
         return False
 
-    def _load_old_faces(self):
+    def _load_old_faces(self, db_name):
         '''
         Read pickle names from a file, read all those into self.faces.
         '''
-        pickle_name = self._gen_pickle_name('faces')
-
+        pickle_name = self._gen_pickle_name(db_name, 'faces') 
+        print('pickle name is ', pickle_name)
+        faces = []
         if os.path.isfile(pickle_name):
+            print('pickle file exists!')
             #pickle exists!
             with open(pickle_name, 'rb') as handle:
-                self.faces = pickle.load(handle)
+                faces = pickle.load(handle) 
+            print('len of faces is ', len(faces))
+        else:
+            print('pickle doesnt exist...')
 
-    def _gen_pickle_name(self, name):
+        return faces
+
+    def _gen_pickle_name(self, db_name, name):
         '''
         Use hash of file names + which classifier we're using
         '''
-        final_name = name + '_' + self.db_name + '_' + self.torch_model
+        final_name = name + '_' + db_name + '_' + self.torch_model
         return './pickle/' + final_name + '.pickle'
 
     def _extract_features(self, face):
@@ -470,7 +509,7 @@ class FaceDB:
         '''
         print('starting to cluster!')
         print('cluster algs are: ', self.cluster_algs)
-        k = self._find_best_k()
+        # k = self._find_best_k()
 
         cluster_results = {}
         # feature_vectors = [face.features for face in self.faces]
@@ -616,7 +655,7 @@ class FaceDB:
 
         print('small images were ', small_images) 
         # self.faces has been updated by now!
-        pickle_name = self._gen_pickle_name('faces')
+        pickle_name = self._gen_pickle_name(self.db_name, 'faces')
         with open(pickle_name, 'w+') as handle:
             pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
 

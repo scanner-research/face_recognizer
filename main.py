@@ -12,14 +12,18 @@ def load_img_files(args):
     # So we can append name to the end.
     if args.dataset[-1] != '/':
         args.dataset += '/'
-    img_directory = os.path.join('data', args.dataset)
+
     imgs = []
-    
+    img_directory = os.path.join('data', args.dataset) 
+
     i = 0
     # TODO: fix quick test in case of lfw
     for root, subdirs, files in os.walk(img_directory):
 
         for file in files:
+            if i > 5:
+                print('testing on only 5 samples')
+                break
             if i > 100 and args.quick_test:
                 print('time to break!')
                 break
@@ -118,14 +122,20 @@ def main():
 
         faceDB = FaceDB(open_face_model_dir=model_dir, db_name=args.db_name,
                     num_clusters=args.clusters, cluster_algs=args.cluster_algs,
-                    svm_merge=args.svm_merge)   
+                    svm_merge=args.svm_merge,
+                    save_bad_clusters=args.save_bad_clusters)   
         train_imgs = imgs
 
-        faceDB.add_base_faces_from_videos([video_name], [train_imgs],
-                labels=None, frame=args.frame)
+        # faceDB.add_base_faces_from_videos([video_name], [train_imgs],
+                # labels=None, frame=args.frame)
 
         # faceDB.label_images()
-        faceDB.cluster_analysis(faceDB.main_clusters) 
+        faceDB.cluster_analysis(None) 
+        
+        # args.dataset = 'got/got2_faces/'
+        # new_imgs = load_img_files(args)
+        # print('len of new imgs is ', len(new_imgs))
+        # faceDB.add_faces_from_video(['got2'],[new_imgs], db_old='got2') 
 
 if __name__ == '__main__': 
 
