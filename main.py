@@ -6,6 +6,7 @@ from helper import ArgParser
 from sklearn.model_selection import train_test_split
 from collections import defaultdict
 import random
+from faceDB.util import *
 
 def load_img_files(args):
     
@@ -99,7 +100,6 @@ def main():
     args = ArgParser().args 
     model_dir= '/Users/parimarjann/openface/models'
     # For other parameters, defaults are good for now.
-
     labeled_dataset = False
     videos = True
     
@@ -124,10 +124,8 @@ def main():
 
     elif videos:
         imgs = load_img_files(args)
-        print('len of imgs is ', len(imgs))
-        #TODO: Can extract this based on args.dataset name
-        video_name = 'tripling1'
-        print('db name is ', args.db_name)
+        # print('len of imgs is ', len(imgs))
+        # print('db name is ', args.db_name)
 
         faceDB = FaceDB(open_face_model_dir=model_dir, db_name=args.db_name,
                     num_clusters=args.clusters, cluster_algs=args.cluster_algs,
@@ -166,9 +164,14 @@ def main():
                 assert id in clusters, 'has to be one of the keys'
         
         print('final len of clusters = ', len(clusters))
-        print(clusters)
-        # for _, cluster in clusters.iteritems():
-            # print(cluster.faces[0].img_path)
+        print('saving cluster images')
+        total_faces = 0
+        for _, cluster in clusters.iteritems():
+            total_faces += len(cluster.faces)
+            save_cluster_image(cluster.faces, 'test29')
+
+        print('total faces are: ', total_faces)
+        print('imgs were ', len(imgs))
         
 if __name__ == '__main__': 
 

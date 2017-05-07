@@ -3,6 +3,8 @@ import pickle
 import numpy as np
 from PIL import Image
 import errno
+import math
+import hashlib
 
 def do_pickle(pickle_bool, pickle_name, num_args, func, *args):
     '''
@@ -66,6 +68,46 @@ def mix_samples(train_genuine, train_impostors):
 
     return samples, labels
 
+def get_cluster_image_name(name, images):
+    '''
+    Generates a unique name for the cluster_image - hash of the img names
+    of the cluster should ensure that things don't clash.
+    ''' 
+    hashed_name = hashlib.sha1(str(images)).hexdigest()
+    return 'cluster_images/' + name + hashed_name[0:5] + '.jpg'
+
+def save_cluster_image(cluster, img_name):
+    '''
+    Takes in a single cluster (of the type stored in self.main_clusters),
+    and saves an nxn image of the faces in it.
+    Basically list of face objects
+    '''
+    n = math.sqrt(len(cluster))
+    n = int(math.floor(n))
+
+    rows = []
+    for i in range(n):
+        # i is the current row that we are saving.
+        row = []
+        for j in range(i*n, i*n+n, 1): 
+            file_name = cluster[j].img_path
+            try:
+                img = Image.open(file_name)
+            except Exception as e:
+                print('Exception: ', e)
+                continue
+
+            row.append(img)
+
+        if len(row) != 0: 
+            rows.append(combine_imgs(row, 'horiz'))
+
+    final_image = combine_imgs(rows, 'vertical')
+
+    img_names = [a.img_path for a in cluster]
+    file_name = get_cluster_image_name(img_name, img_names) 
+    final_image.save(file_name, quality=100)
+
 # Taken from http://stackoverflow.com/a/600612/119527
 def mkdir_p(path):
     try:
@@ -74,3 +116,4 @@ def mkdir_p(path):
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             pass
         else: raise
+

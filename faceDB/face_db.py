@@ -163,7 +163,7 @@ class FaceDB:
         '''
         @frames: img paths of frames.
         '''
-        pass
+        assert False, 'not implemented yet'
 
     def add_detected_faces(self, video_id, detected_face_paths, face_clusters=None):
         '''
@@ -247,7 +247,7 @@ class FaceDB:
             # Special case when features are directly fed to the db.
             if faces[0].img_path is None:
                 continue
-            self._save_cluster_image(faces, 'test_new_method')
+            save_cluster_image(faces, 'test12')
         
         # Finish here if face_clusters was None
         if face_clusters is None:
@@ -473,7 +473,7 @@ class FaceDB:
             
             if cohesion > 0.30 and score > 0.80:
                 img_name = 'cohesion_cluster_' + str(k) + '_' + self.db_name
-                self._save_cluster_image(faces, img_name)
+                save_cluster_image(faces, img_name)
 
             if score < self.good_cluster_score and self.cluster_analysis_verbosity >= 2:
                 print('---------------------------------------')
@@ -487,7 +487,7 @@ class FaceDB:
             if score < 0.60 and self.save_bad_clusters:
                 # Let's save these in a nice view
                 img_name = 'bad_cluster_' + str(k) + '_' + self.db_name
-                self._save_cluster_image(faces, img_name)
+                save_cluster_image(faces, img_name)
 
         # sort according to the length of the clusters
         if self.cluster_analysis_verbosity == 2:
@@ -912,13 +912,13 @@ class FaceDB:
 
         return random.sample(self.negative_features, num)
 
-    def _get_cluster_image_name(self, name, images):
-        '''
-        Generates a unique name for the cluster_image - hash of the img names
-        of the cluster should ensure that things don't clash.
-        ''' 
-        hashed_name = hashlib.sha1(str(images)).hexdigest()
-        return 'cluster_images/' + name + hashed_name[0:5] + '.jpg'
+    # def _get_cluster_image_name(self, name, images):
+        # '''
+        # Generates a unique name for the cluster_image - hash of the img names
+        # of the cluster should ensure that things don't clash.
+        # ''' 
+        # hashed_name = hashlib.sha1(str(images)).hexdigest()
+        # return 'cluster_images/' + name + hashed_name[0:5] + '.jpg'
 
     def create_cluster_images(self):
         '''
@@ -928,40 +928,8 @@ class FaceDB:
         '''
         for k, cluster in self.main_clusters.iteritems(): 
             img_name = self.db_name + '_' + str(k)
-            self._save_cluster_image(cluster, img_name) 
+            save_cluster_image(cluster, img_name) 
     
-    def _save_cluster_image(self, cluster, img_name):
-        '''
-        Takes in a single cluster (of the type stored in self.main_clusters),
-        and saves an nxn image of the faces in it.
-        Basically list of face objects
-        '''
-        n = math.sqrt(len(cluster))
-        n = int(math.floor(n))
-
-        rows = []
-        for i in range(n):
-            # i is the current row that we are saving.
-            row = []
-            for j in range(i*n, i*n+n, 1): 
-                file_name = cluster[j].img_path
-                try:
-                    img = Image.open(file_name)
-                except Exception as e:
-                    print('Exception: ', e)
-                    continue
-
-                row.append(img)
-
-            if len(row) != 0: 
-                rows.append(combine_imgs(row, 'horiz'))
-
-        final_image = combine_imgs(rows, 'vertical')
-
-        img_names = [a.img_path for a in cluster]
-        file_name = self._get_cluster_image_name(img_name, img_names) 
-        final_image.save(file_name, quality=100)
-
     def lookup_face(self, face_image):
         '''
         Return expected identity or None if unknown - use either knn or train
