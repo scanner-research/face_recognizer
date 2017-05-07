@@ -80,8 +80,7 @@ class OpenFaceHelper():
             orig_faces.append((bb.center().x, crop_img))
 
         orig_faces = sorted(orig_faces, key=lambda x: x[0])
-
-        
+ 
         saved_names = []
         for i, af in enumerate(orig_faces):
             af = af[1]
@@ -101,13 +100,13 @@ class OpenFaceHelper():
     def get_rep(self, img_path, do_bb=False, new_dir=None):
         '''
         Slightly modified function from openface demos/classifier.py
-
         For a single image.
+        FIX This.
         @do_bb: if True, we treat full image as the bounding box of the face.
         TODO: Just get rid of the do_bb option as I have separated the face
         detection stage. Just treat every input as the full image.
         
-        ret: features, None
+        @ret: features
         '''
         if self.verbose:
             print("Processing {}.".format(img_path))

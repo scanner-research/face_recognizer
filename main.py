@@ -21,8 +21,7 @@ def load_img_files(args):
     for root, subdirs, files in os.walk(img_directory):
 
         for file in files:
-            if i > 5:
-                print('testing on only 5 samples')
+            if i > 200:
                 break
             if i > 100 and args.quick_test:
                 print('time to break!')
@@ -32,6 +31,16 @@ def load_img_files(args):
                  imgs.append(os.path.join(root, file))
     
     print('found images = {}'.format(len(imgs)))
+    return imgs
+
+def load_imgs(img_directory):
+        
+    imgs = []
+    for root, subdirs, files in os.walk(img_directory):
+        for file in files:
+            if os.path.splitext(file)[1].lower() in ('.jpg', '.jpeg'):
+                 imgs.append(os.path.join(root, file))
+    
     return imgs
 
 def get_name_from_path(path):
@@ -123,20 +132,44 @@ def main():
         faceDB = FaceDB(open_face_model_dir=model_dir, db_name=args.db_name,
                     num_clusters=args.clusters, cluster_algs=args.cluster_algs,
                     svm_merge=args.svm_merge,
-                    save_bad_clusters=args.save_bad_clusters)   
+                    save_bad_clusters=args.save_bad_clusters, verbose=False)   
         train_imgs = imgs
-
+        
+        # Original:
         # faceDB.add_base_faces_from_videos([video_name], [train_imgs],
                 # labels=None, frame=args.frame)
-
         # faceDB.label_images()
-        faceDB.cluster_analysis(None) 
+        # faceDB.cluster_analysis(None) 
         
         # args.dataset = 'got/got2_faces/'
         # new_imgs = load_img_files(args)
         # print('len of new imgs is ', len(new_imgs))
         # faceDB.add_faces_from_video(['got2'],[new_imgs], db_old='got2') 
+        
+        negative_imgs = load_imgs('./data/got/got1_faces')
+        random.seed(1234)
+        negative_imgs = random.sample(negative_imgs, 750)
+        faceDB.add_negative_features(negative_imgs)
 
+        # testing new interface:
+        # faceDB.add_base_faces_from_videos([video_name], [train_imgs],
+                # labels=None, frame=args.frame, cluster=False)
+
+        imgs  = load_imgs('./data/friends/friends1_faces')
+        # Add 250 imgs at a time.
+        clusters = None
+        for i in range(0,len(imgs), 250):
+            imgs_to_add = imgs[i:i+250]
+            ids, clusters = faceDB.add_detected_faces('test_vid', imgs_to_add,
+                    clusters)
+            for id in ids:
+                assert id in clusters, 'has to be one of the keys'
+        
+        print('final len of clusters = ', len(clusters))
+        print(clusters)
+        # for _, cluster in clusters.iteritems():
+            # print(cluster.faces[0].img_path)
+        
 if __name__ == '__main__': 
 
     main()

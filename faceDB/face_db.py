@@ -4,7 +4,7 @@ import os
 from collections import defaultdict
 from PIL import Image
 
-from face import Face
+from face import Face, FaceCluster
 from open_face_helper import OpenFaceHelper
 from rank_order_cluster import Rank_Order
 from util import *
@@ -22,6 +22,7 @@ import matplotlib.image as mpimg
 from sklearn.svm import NuSVC, SVC, LinearSVC
 from sklearn.metrics import silhouette_samples, silhouette_score
 import time
+import hashlib
 
 def _sklearn_clustering(all_feature_vectors, func, *args, **kwargs):
     '''
@@ -44,7 +45,7 @@ class FaceDB:
         self.feature_extractor = feature_extractor
         self.verbose = verbose
         
-        self.num_clusters = num_clusters
+        self.n_clusters = num_clusters
         self.svm_merge = svm_merge 
         self.cluster_algs = cluster_algs
 
@@ -112,39 +113,203 @@ class FaceDB:
         print('num labeled faces are ', num_labeled)
         return num_labeled
 
-    def add_faces_from_video(self, video_id, paths_to_face_images, db_old=None,frame=False):
+    def add_negative_features(self, detected_face_paths):
+        '''
+        @detected_faces: img paths of cropped faces
+        '''
+        pickle_name = self._get_paths_pickle_name(detected_face_paths)
+        print('pickle name is ', pickle_name)
+        if os.path.exists(pickle_name):
+            with open(pickle_name, 'rb') as handle:
+                self.negative_features = pickle.load(handle)
+                print("successfully loaded pickle file!", pickle_name)    
+        else:
+            self.negative_features = []
+            for img_path in detected_face_paths:
+                print(img_path)
+                try:
+                    features = self.open_face.get_rep(img_path)
+                except Exception as e:
+                    print('Exception: ', e)
+                    continue
+                self.negative_features.append(features)
+
+            with open(pickle_name, 'w+') as handle:
+                pickle.dump(self.negative_features, handle, protocol=pickle.HIGHEST_PROTOCOL) 
+
+        
+        print('added {} negative \
+        features'.format(len(self.negative_features))) 
+    
+    def _get_paths_pickle_name(self, paths):
+
+        hashed_name = hashlib.sha1(str(paths)).hexdigest()
+        return './pickle/' + hashed_name[0:5] + '.pickle' 
+
+    def add_features(self, video_id, features, face_clusters=None):
+        '''
+        I prefer this method less because we won't have access to image paths -
+        so can't make cluster images etc.
+        @features: array of features.
+        '''
+        faces = []
+        for feature in features:
+            face = Face(features=features, video_id=video_id)
+            faces.append(face)
+
+        return self._add_faces(faces, face_clusters)
+
+    def add_frames(self, video_id, frame_paths, face_clusters=None):
+        '''
+        @frames: img paths of frames.
+        '''
+        pass
+
+    def add_detected_faces(self, video_id, detected_face_paths, face_clusters=None):
+        '''
+        @detected_faces: img paths of detected faces.
+        '''
+        faces = []
+        pickle_name = self._get_paths_pickle_name(detected_face_paths)
+        if os.path.exists(pickle_name):
+            with open(pickle_name, 'rb') as handle:
+                faces = pickle.load(handle)
+                print("successfully loaded pickle file!", pickle_name)    
+        else:
+            faces = []
+            for path in detected_face_paths:
+                face = Face(img_path=path, video_id=video_id)
+                if self._extract_features(face):
+                    faces.append(face)
+                    if self.verbose:
+                        print('added face ', face.img_path)
+
+            with open(pickle_name, 'w+') as handle:
+                pickle.dump(faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
+
+        return self._add_faces(faces, face_clusters)
+
+    def _add_faces(self, faces, face_clusters=None, n_clusters=None):
         '''
         For each face, ether assign it to an existing cluster (and keep track
-        of that), or make a new cluster. At the end of the step, incorporate
-        new clusters into global face database.
-        
-        @db_old: If we have the face vectors already stored in an older db.
-        @frame: Is each image a frame or an already detected face?
-        '''
-        
-        # Simple case where we assume that db_old is not none.
-        print('len of faces in db is ', len(self.faces))
-        if db_old is None:
-            pass
-        else:
-            print('in add faces from video!')
-            # Let's load the faces from the old_db
-            new_faces = self._load_old_faces(db_old) 
-            # Now we need to decide what to do with these.
-            print('len of new faces is ', len(new_faces))
-        
-        # Try to merge clusters of new faces into old_faces
-        # self.faces += new_faces
+        of that), or make a new cluster. 
 
-        # # Save it on disk for future.
-        # pickle_name = self._gen_pickle_name(self.db_name, 'faces')
-        # with open(pickle_name, 'w+') as handle:
-            # pickle.dump(self.faces, handle, protocol=pickle.HIGHEST_PROTOCOL) 
+        This will be the core method that other functions - like ones accepting
+        frames or feature vectors directly, will call.
         
-        # # Do further clustering and analysis on these faces
-        # if cluster:
-            # self._cluster()
-    
+        @faces: list of Face objects that have not been clustered yet.
+        @face_clusters: dict of FaceCluster objects from before. Could be None
+        if don't have previous clusters.
+
+        @ret: ids: cluster identity assigned to each face_cluster
+              face_clusters: dictionary of FaceCluster objects
+        '''
+        print('in add faces!')
+        if n_clusters is None:
+            n_clusters = self.n_clusters
+
+        # Step 1: Cluster all the new faces.
+        feature_vectors = np.array([face.features for face in faces])
+        clusters = defaultdict(list) 
+        # TODO: More complicated clustering / combining clusters at this step.
+        cluster_results = _sklearn_clustering(feature_vectors, 
+                        AgglomerativeClustering, n_clusters=n_clusters)
+        
+        for i, label in enumerate(cluster_results.labels_):
+            clusters[label].append(faces[i])
+        
+        # Generate FaceCluster objects
+        new_face_clusters = {}
+        for _, cluster in clusters.iteritems():
+            # name of the cluster can't be its label as it has to be unique.
+            name = cluster[0].name 
+            # use these negative features for training the svm in FaceCluster
+            negative_features = self._get_negative_features(len(cluster))
+            new_face_clusters[name] = FaceCluster(name, cluster,
+                    negative_features=negative_features)
+
+            # also need to update each of the face objects in cluster with the
+            # new name
+            for face in cluster:
+                face.cluster = name
+        
+        print('len of new face clusters = ', len(new_face_clusters))
+
+        # TODO: Test pickling
+        
+        # Step 2: Merge the newly created clusters.
+        new_face_clusters = self._merge_face_clusters(new_face_clusters)
+        print('len of updated clusters are: ', len(new_face_clusters))
+
+        # saving images:
+        for _, cluster in new_face_clusters.iteritems():
+            faces = [face for face in cluster.faces]
+            # Special case when features are directly fed to the db.
+            if faces[0].img_path is None:
+                continue
+            self._save_cluster_image(faces, 'test_new_method')
+        
+        # Finish here if face_clusters was None
+        if face_clusters is None:
+            ids = [face.cluster for face in faces]
+            return ids, new_face_clusters
+
+        # Step 3: Merge with the clusters that already existed (face_clusters)
+        # If any of the new clusters don't merge, just add them to the
+        # face_clusters list.
+        print('starting step 3!!') 
+        print('orig len of face_clusters: ', len(face_clusters))
+        for name, cluster in new_face_clusters.iteritems():
+            if not self._merge_if_possible(cluster, face_clusters):
+                # Add cluster as a new cluster in face_clusters
+                # FIXME: Can there be a name clash here?
+                assert not name in face_clusters, 'should not be possible'
+                face_clusters[name] = cluster
+                print('added new cluster to existing clusters!')
+
+        print('final len of face clusters = ', len(face_clusters))
+        ids = [face.cluster for face in faces]
+        return ids, face_clusters
+
+    def _merge_face_clusters(self, face_clusters):
+        '''
+        @ret: A merged version of face clusters
+        '''
+        for name, cluster in face_clusters.iteritems():
+            # Can this cluster be merged with any of the given clusters?
+            if self._merge_if_possible(cluster, face_clusters):
+                # merged them! 
+                # delete previous cluster (set its name/svm to None)
+                cluster.svm = None
+                cluster.name = None
+        
+        # get rid of clusters which were merged (ie. there name was None)
+        updated_clusters = {k:v for k,v in face_clusters.iteritems() if
+                                v.name is not None}
+
+        return updated_clusters 
+
+    def _merge_if_possible(self, cluster_to_merge, face_clusters):
+        '''
+        Checks if the given FaceCluster can merge into any of the other
+        face_clusters.
+        '''
+        for _, new_cluster in face_clusters.iteritems():    
+            if new_cluster.name == cluster_to_merge.name:
+                continue
+            if new_cluster.svm is None:
+                continue
+            if new_cluster.check_merge(cluster_to_merge):
+                new_cluster.merge(cluster_to_merge)
+                # need to retrain the svm of the new cluster
+                # First need the negative features
+                features = [face.features for face in new_cluster.faces]
+                negative_features = self._get_negative_features(len(features))
+                new_cluster.train_svm(features, negative_features)
+                return True
+                
+        return False
+
     def add_base_faces_from_videos(self, video_id_list, paths_to_face_images_list,
             labels = None, frame=False, cluster=True): 
         '''
@@ -203,9 +368,9 @@ class FaceDB:
 
                 # TODO: get rid of the unneccessary ugly conditions here
                 if labels is None:
-                    face = Face(path, vid_id)
+                    face = Face(img_path=path, video_id=vid_id)
                 else:
-                    face = Face(path, vid_id, label=labels[i][j])
+                    face = Face(img_path=path, video_id=vid_id, label=labels[i][j])
                 if frame: 
                     face.orig_path = orig_path
 
@@ -228,6 +393,9 @@ class FaceDB:
         # Do further clustering and analysis on these faces
         if cluster:
             self._cluster()
+        else:
+            # This is just testing for the new setup.
+            self._add_faces(self.faces, None, None)
     
     def _score_cluster(self, faces):
         '''
@@ -464,7 +632,8 @@ class FaceDB:
 
         except Exception as e:
             # if it fails to open the file for whatever reason.
-            print('extracting features failed, Exception was: ', e)
+            if self.verbose:
+                print('extracting features failed, Exception was: ', e)
             return False
         
         return True
@@ -510,7 +679,6 @@ class FaceDB:
         print('starting to cluster!')
         print('cluster algs are: ', self.cluster_algs)
         # k = self._find_best_k()
-
         cluster_results = {}
         # feature_vectors = [face.features for face in self.faces]
         feature_vectors = [face.features for face in self.faces if not face.label in \
@@ -531,7 +699,7 @@ class FaceDB:
                     AffinityPropagation, damping=0.5)
             elif alg == 'AC':
                 cluster_results['AC'] = _sklearn_clustering(feature_vectors,
-                    AgglomerativeClustering, n_clusters=self.num_clusters)
+                    AgglomerativeClustering, n_clusters=self.n_clusters)
             
             elif alg == 'RO':
                 rank_order = Rank_Order(feature_vectors,
@@ -539,7 +707,7 @@ class FaceDB:
 
                 D = rank_order.compute_all_distances()
                 cluster_results['RO'] = _sklearn_clustering(D, AgglomerativeClustering,
-                        n_clusters=self.num_clusters, affinity='precomputed',
+                        n_clusters=self.n_clusters, affinity='precomputed',
                         linkage='complete')
 
         #FIXME: tmp thing to assign clusters -- need to find a better way to
@@ -574,7 +742,7 @@ class FaceDB:
         feature_vectors = [face.features for face in self.faces]
         feature_vectors = np.array(feature_vectors) 
         cluster_results = _sklearn_clustering(feature_vectors,
-            AgglomerativeClustering, n_clusters=self.num_clusters)
+            AgglomerativeClustering, n_clusters=self.n_clusters)
             
         for i, cluster in enumerate(cluster_results.labels_):
             # self.faces[i].cluster = cluster
@@ -668,10 +836,8 @@ class FaceDB:
         possible. 
         '''
         print('len of clusters before merge is ', len(self.main_clusters))
-
         # TODO: Iterate over the clusters in better order (by cohesion / num
         # faces in each cluster or some other heuristic)
-
         for cur_label, faces in self.main_clusters.iteritems():
             # features = [face.features for face in faces]
             features = [face.features for face in faces if not face.label in \
@@ -724,8 +890,7 @@ class FaceDB:
         Returns the label to merge to, or None.
         '''
         for label, clf in self.svms.iteritems():
-            results = clf.predict(features)
-            
+            results = clf.predict(features) 
             # if more than THRESHOLD (75%?) of these are predicted to be 1,
             # then we go ahead and merge.
             result = sum(results) / float(len(results))
@@ -741,17 +906,19 @@ class FaceDB:
         
         TODO: get a bunch of random faces to use for this.
         ''' 
-        feature_vectors = [face.features for face in self.faces]
-        return random.sample(feature_vectors, num)
+        # feature_vectors = [face.features for face in self.faces]
+        if num > len(self.negative_features):
+            num = len(self.negative_features)
+
+        return random.sample(self.negative_features, num)
 
     def _get_cluster_image_name(self, name, images):
         '''
         Generates a unique name for the cluster_image - hash of the img names
         of the cluster should ensure that things don't clash.
-
-        TODO: Use hash of images etc.
-        '''
-        return 'cluster_images/' + name + '.jpg'
+        ''' 
+        hashed_name = hashlib.sha1(str(images)).hexdigest()
+        return 'cluster_images/' + name + hashed_name[0:5] + '.jpg'
 
     def create_cluster_images(self):
         '''
@@ -767,6 +934,7 @@ class FaceDB:
         '''
         Takes in a single cluster (of the type stored in self.main_clusters),
         and saves an nxn image of the faces in it.
+        Basically list of face objects
         '''
         n = math.sqrt(len(cluster))
         n = int(math.floor(n))
@@ -779,7 +947,8 @@ class FaceDB:
                 file_name = cluster[j].img_path
                 try:
                     img = Image.open(file_name)
-                except:
+                except Exception as e:
+                    print('Exception: ', e)
                     continue
 
                 row.append(img)
