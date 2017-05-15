@@ -10,7 +10,7 @@ class Face():
 
         @img_path: file path on disk
         @video_id: which video it is from. Can be useful as a feature, but we
-        aren't using it right now. 
+        aren't using it right now.
         @label: If it is from a labelled dataset, then we can use these labels
         to analyze the quality of clustering etc.
 
@@ -21,14 +21,14 @@ class Face():
         self.features = None
 
         self.video_id = video_id
-        self.label = label 
-        
+        self.label = label
+
         if img_path is not None:
             self.name = img_path
-        else: 
+        else:
             hashed_name = hashlib.sha1(str(features)).hexdigest()
             self.name = hashed_name[0:5]
-        
+
         # Each of the clustering algorithms, like AC, AP etc can assign this
         # face to a different cluster, but here we only want to store the final
         # assignment after whatever algorithms we use to determine the cluster.
@@ -36,11 +36,11 @@ class Face():
 
 class FaceCluster():
 
-    def __init__(self, name, faces, negative_features=None):
+    def __init__(self, name, faces, negative_features=None, svm=None):
         '''
         Provides a list of face objects for this cluster.
         @name: string
-        @faces: face objects 
+        @faces: face objects
         '''
         self.name = name
         self.faces = faces
@@ -48,7 +48,9 @@ class FaceCluster():
         # We will train an svm on the objects of this cluster
         self.svm = None
         self.merge_threshold = 0.75
-        if negative_features is not None:
+        if svm is not None:
+            self.svm = pickle.loads(svm)
+        elif negative_features is not None:
             features = [face.features for face in self.faces]
             self.train_svm(features, negative_features)
 
@@ -61,13 +63,14 @@ class FaceCluster():
         '''
         Checks if this cluster should be merged with another.
         '''
-        features = [face.features for face in cluster.faces] 
-        results = self.svm.predict(features) 
+        features = [face.features for face in cluster.faces]
+        results = self.svm.predict(features)
         result = sum(results) / float(len(results))
         if result >= self.merge_threshold:
             return True
 
-        return False 
+        return False
+
     def merge(self, cluster):
         '''
         Eats up cluster into new cluster.
@@ -77,10 +80,10 @@ class FaceCluster():
         for face in cluster.faces:
             face.cluster = self.name
             self.faces.append(face)
-        
+
         # Update svm should happen from the caller - as we don't have access to
         # negative samples here. (Or provide negative samples here)
-    
+
     def train_svm(self, features, negative_features):
         '''
         '''

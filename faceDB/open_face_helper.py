@@ -18,8 +18,8 @@ def _css_to_rect(css):
 class OpenFaceHelper():
 
     def __init__(self, model_dir, torch_model='nn4.small2.v1.t7', args=None):
-        ''' 
-        All defaul values. 
+        '''
+        All defaul values.
         TODO: Might want to experiment with these later.
         '''
         if args is None:
@@ -33,11 +33,11 @@ class OpenFaceHelper():
         self.align = openface.AlignDlib(os.path.join(dlibModelDir,
             "shape_predictor_68_face_landmarks.dat"))
 
-        self.net = openface.TorchNeuralNet(network_model, self.img_dim)
+        self.net = openface.TorchNeuralNet(network_model, self.img_dim, cuda=True)
 
         self.images = []
         self.image_names = []
-    
+
     def save_images(self):
         '''
         saves the images in a batch.
@@ -58,7 +58,7 @@ class OpenFaceHelper():
         if bgrImg is None:
             raise Exception("Unable to load image: {}".format(img_path))
         rgbImg = cv2.cvtColor(bgrImg, cv2.COLOR_BGR2RGB)
- 
+
         bbs = self.align.getAllFaceBoundingBoxes(rgbImg)
         if len(bbs) == 0:
             raise Exception("Unable to find a face: {}".format(img_path))
@@ -80,7 +80,7 @@ class OpenFaceHelper():
             orig_faces.append((bb.center().x, crop_img))
 
         orig_faces = sorted(orig_faces, key=lambda x: x[0])
- 
+
         saved_names = []
         for i, af in enumerate(orig_faces):
             af = af[1]
@@ -105,7 +105,7 @@ class OpenFaceHelper():
         @do_bb: if True, we treat full image as the bounding box of the face.
         TODO: Just get rid of the do_bb option as I have separated the face
         detection stage. Just treat every input as the full image.
-        
+
         @ret: features
         '''
         if self.verbose:
@@ -117,7 +117,7 @@ class OpenFaceHelper():
         rgbImg = cv2.cvtColor(bgrImg, cv2.COLOR_BGR2RGB)
 
         start = time.time()
-        
+
         bb = self.align.getLargestFaceBoundingBox(rgbImg)
 
         start = time.time()
@@ -128,11 +128,10 @@ class OpenFaceHelper():
             raise Exception("Unable to align image: {}".format(img_path))
         if self.verbose:
             print("  + Face alignment took {} seconds.".format(time.time() - start))
-        
+
         start = time.time()
         rep = self.net.forward(aligned_face)
         if self.verbose:
             print("  + OpenFace forward pass took {} seconds.".format(time.time() - start))
 
         return rep
-
