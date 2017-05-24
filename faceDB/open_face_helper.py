@@ -117,8 +117,12 @@ class OpenFaceHelper():
         rgbImg = cv2.cvtColor(bgrImg, cv2.COLOR_BGR2RGB)
 
         start = time.time()
-
-        bb = self.align.getLargestFaceBoundingBox(rgbImg)
+        
+        if do_bb:
+            bb = self.align.getLargestFaceBoundingBox(rgbImg)
+        else:
+            bounding_box = (0, 0, rgbImg.shape[0], rgbImg.shape[1])
+            bb = _css_to_rect(bounding_box)
 
         start = time.time()
         aligned_face = self.align.align(self.img_dim, rgbImg, bb,

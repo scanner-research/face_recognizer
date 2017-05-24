@@ -36,7 +36,8 @@ class Face():
 
 class FaceCluster():
 
-    def __init__(self, name, faces, negative_features=None, svm=None):
+    def __init__(self, name, faces, negative_features=None, svm=None,
+            merge_threshold=1.00):
         '''
         Provides a list of face objects for this cluster.
         @name: string
@@ -47,7 +48,7 @@ class FaceCluster():
 
         # We will train an svm on the objects of this cluster
         self.svm = None
-        self.merge_threshold = 0.75
+        self.merge_threshold = merge_threshold
         if svm is not None:
             self.svm = pickle.loads(svm)
         elif negative_features is not None:

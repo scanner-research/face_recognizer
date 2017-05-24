@@ -33,17 +33,21 @@ def _sklearn_clustering(all_feature_vectors, func, *args, **kwargs):
     clusters = func(**kwargs).fit(all_feature_vectors)
     return clusters
 
+# TODO: Clean up FaceDB class to get rid of the parameters that I'm not using
+# anymore.
 class FaceDB:
 
     def __init__(self, feature_extractor = 'openface', open_face_model_dir=None,
             cluster_algs = None, db_name='test', verbose=True,
-            num_clusters=200, svm_merge=False, save_bad_clusters=False):
+            num_clusters=200, svm_merge=False, save_bad_clusters=False,
+            merge_threshold=1.0):
         '''
         Specify parameters here.
         '''
         self.db_name = db_name
         self.feature_extractor = feature_extractor
         self.verbose = verbose
+        self.merge_threshold = merge_threshold
 
         self.n_clusters = num_clusters
         self.svm_merge = svm_merge
@@ -56,7 +60,7 @@ class FaceDB:
         self.save_bad_clusters = save_bad_clusters
         self.torch_model = 'nn4.small2.v1.t7'
 
-        self.merge_threshold = 0.70     # For merging clusters with svm.
+        # self.merge_threshold = 0.70     # For merging clusters with svm.
         self.min_cluster_size = 10      # drop clusters with fewer
         self.good_cluster_score = 0.80  # used for testing
 
@@ -67,7 +71,7 @@ class FaceDB:
 
         # convention for got:
         # a: unknown female, s: unknown male
-        self._exclude_labels = ['a', 's', 'small', 'small ']
+        # self._exclude_labels = ['a', 's', 'small', 'small ']
 
         if feature_extractor == 'openface':
             assert open_face_model_dir is not None, 'specify open face model dir'
@@ -78,11 +82,10 @@ class FaceDB:
 
         # Initialize previous version of the DB from disk.
         # self.faces = []
-        # TODO: Also load the clusters (and svms?)
-        self.faces = self._load_old_faces(self.db_name)
-        self.num_labeled_faces = self._calculate_labeled_faces()
 
-        print('num faces in the db are ', len(self.faces))
+        # self.faces = self._load_old_faces(self.db_name)
+        # self.num_labeled_faces = self._calculate_labeled_faces()
+        # print('num faces in the db are ', len(self.faces))
 
         # For now, just run the AP / or whatever algorithm repeatedly to create
         # the clusters.
@@ -92,9 +95,10 @@ class FaceDB:
 
         # temporary: Need to decide on how to choose main clusters later.
         self.main_clusters = self.clusters[cluster_alg]
+
         # Initialize the trained svms (?) or whatever other classifier we
         # choose to use in the end.
-        self.svms = {}
+        # self.svms = {}
 
     def _calculate_labeled_faces(self):
         '''
@@ -172,12 +176,13 @@ class FaceDB:
         faces = []
         indices = []
         pickle_name = self._get_paths_pickle_name(detected_face_paths)
+        print('pickle name: ', pickle_name)
+        print('len of detected face paths: ', len(detected_face_paths))
         if os.path.exists(pickle_name):
             with open(pickle_name, 'rb') as handle:
                 (faces, indices) = pickle.load(handle)
                 print("successfully loaded pickle file!", pickle_name)
         else:
-            faces = []
             for i, path in enumerate(detected_face_paths):
                 face = Face(img_path=path, video_id=video_id)
                 if self._extract_features(face):
@@ -185,9 +190,17 @@ class FaceDB:
                     indices.append(i)
                     if self.verbose:
                         print('added face ', face.img_path)
-
-            with open(pickle_name, 'w+') as handle:
-                pickle.dump((faces, indices), handle, protocol=pickle.HIGHEST_PROTOCOL)
+            
+            if len(faces) > self.n_clusters:
+                with open(pickle_name, 'w+') as handle:
+                    print("going to dump pickle stuff!")
+                    print("faces len: ", len(faces))
+                    print("indices: ", len(indices))
+                    pickle.dump((faces, indices), handle, protocol=pickle.HIGHEST_PROTOCOL)
+            else:
+                # Just return empty things.
+                print("There were only {} faces in add detected faces".format(len(faces)))
+                return ([], {}, []), []
 
         return self._add_faces(faces, face_clusters), indices
 
@@ -205,14 +218,18 @@ class FaceDB:
 
         @ret: ids: cluster identity assigned to each face_cluster
               face_clusters: dictionary of FaceCluster objects
+              faces: 
         '''
         print('in add faces!')
         if n_clusters is None:
             n_clusters = self.n_clusters
+        print('len of faces = ', len(faces))        
+        print('len of face clusters = ', len(face_clusters))
 
         # Step 1: Cluster all the new faces.
         feature_vectors = np.array([face.features for face in faces])
         clusters = defaultdict(list)
+
         # TODO: More complicated clustering / combining clusters at this step.
         cluster_results = _sklearn_clustering(feature_vectors,
                         AgglomerativeClustering, n_clusters=n_clusters)
@@ -228,7 +245,8 @@ class FaceDB:
             # use these negative features for training the svm in FaceCluster
             negative_features = self._get_negative_features(len(cluster))
             new_face_clusters[name] = FaceCluster(name, cluster,
-                    negative_features=negative_features)
+                    negative_features=negative_features,
+                    merge_threshold=self.merge_threshold)
 
             # also need to update each of the face objects in cluster with the
             # new name
@@ -633,11 +651,11 @@ class FaceDB:
         try:
             face.features = self.open_face.get_rep(face.img_path,
                     do_bb=False, new_dir=None)
-
         except Exception as e:
             # if it fails to open the file for whatever reason.
             if self.verbose:
                 print('extracting features failed, Exception was: ', e)
+
             return False
 
         return True
@@ -696,6 +714,9 @@ class FaceDB:
 
         print('ignored faces = ', len(self.faces) - len(feature_vectors))
         feature_vectors = np.array(feature_vectors)
+        
+        if len(feature_vectors) < 5:
+            return
 
         for alg in self.cluster_algs:
             if alg == 'AP':
