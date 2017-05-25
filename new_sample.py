@@ -12,24 +12,15 @@ def load_imgs(img_directory):
     
     return imgs
 
-model_dir= '/Users/parimarjann/openface/models'
+model_dir= '/usr/src/app/deps/openface/models'
 
-# Not using this anymore, but I could set it up so that it pickles features
-# based on db_name? 
-db_name = 'does_not_matter'
-
-# Currently just using Agglomerative clustering - but should ideally be doing
-# multiple clustering algorithms and finding the best one based on its results.
-cluster_algs = ['does_not_matter']
-
-faceDB = FaceDB(open_face_model_dir=model_dir, db_name=db_name,
-            num_clusters=10, cluster_algs=cluster_algs,verbose=False)   
+faceDB = FaceDB(open_face_model_dir=model_dir,num_clusters=10)
 
 # Part 1: Add negative images
 # For the svm-merge step to be useful at all, we need a bunch of negative
 # examples. I guess this can be just faces selected randomly from our database
 # etc. Here, I just pass in game of throne faces as negative examples.
-negative_imgs = load_imgs('./data/got/got1_faces')
+negative_imgs = load_imgs('./data/lfw')
 random.seed(1234)
 negative_imgs = random.sample(negative_imgs, 750)
 
@@ -44,25 +35,15 @@ faceDB.add_negative_features(negative_imgs)
 #   c. frames:  (faceDB.add_frames)
 # All of these return: [ids], clusters = {} 
 
-imgs  = load_imgs('./data/friends/friends1_faces')
+imgs  = load_imgs('./data/lfw')
 
 # I will simulate icrementally adding multiple videos by treating each 250
 # image chunk in imgs as a new video.
 
 clusters = None
-for i in range(0,len(imgs), 250):
+for i in range(1):
     imgs_to_add = imgs[i:i+250]
-    ids, clusters = faceDB.add_detected_faces('test_vid', imgs_to_add,
-            clusters)
-    for id in ids:
-        assert id in clusters, 'has to be one of the keys'
+    faceDB.add_detected_faces('test_vid', imgs_to_add,clusters)
 
-print('final len of clusters = ', len(clusters))
-print('saving cluster images')
-total_faces = 0
-for _, cluster in clusters.iteritems():
-    total_faces += len(cluster.faces)
-    save_cluster_image(cluster.faces, 'test29')
-
-print('total faces are: ', total_faces)
-print('imgs were ', len(imgs))
+if clusters is not None:
+    print('final len of clusters = ', len(clusters))

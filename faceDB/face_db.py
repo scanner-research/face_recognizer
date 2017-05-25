@@ -36,31 +36,25 @@ def _sklearn_clustering(all_feature_vectors, func, *args, **kwargs):
 class FaceDB:
 
     def __init__(self, feature_extractor = 'openface', open_face_model_dir=None,
-            cluster_algs = None, db_name='test', verbose=True,
-            num_clusters=20, svm_merge=False, save_bad_clusters=False,
-            merge_threshold=1.0):
+            db_name='test', num_clusters=20, merge_threshold=1.0,
+            same_frame_penalty=False, verbose=True):
         '''
         Specify parameters here.
         '''
-        self.db_name = db_name
         self.feature_extractor = feature_extractor
         self.verbose = verbose
         self.merge_threshold = merge_threshold
+        self.same_frame_penalty = same_frame_penalty
 
         self.n_clusters = num_clusters
-        self.svm_merge = svm_merge
-        self.cluster_algs = cluster_algs
 
         # Other parameters that I have just set at default for now.
 
         # 0,1,2 for different levels, with 2 being most verbose
-        # self.cluster_analysis_verbosity = 2
-        # self.save_bad_clusters = save_bad_clusters
+        self.cluster_analysis_verbosity = 2
         self.torch_model = 'nn4.small2.v1.t7'
 
-        # self.merge_threshold = 0.70     # For merging clusters with svm.
         self.min_cluster_size = 10      # drop clusters with fewer
-        self.good_cluster_score = 0.80  # used for testing
 
         if feature_extractor == 'openface':
             assert open_face_model_dir is not None, 'specify open face model dir'
@@ -121,7 +115,7 @@ class FaceDB:
         '''
         assert False, 'not implemented yet'
 
-    def add_detected_faces(self, video_id, detected_face_paths, face_clusters=None):
+    def add_detected_faces(self, video_id, detected_face_paths, frames, face_clusters=None):
         '''
         @detected_faces: img paths of detected faces.
         '''
@@ -134,13 +128,13 @@ class FaceDB:
                 print("successfully loaded pickle file!", pickle_name)
         else:
             for i, path in enumerate(detected_face_paths):
-                face = Face(img_path=path, video_id=video_id)
+                face = Face(img_path=path, video_id=video_id, frame=frames[i])
                 if self._extract_features(face):
                     faces.append(face)
                     indices.append(i)
                     if self.verbose:
                         print('added face ', face.img_path)
-            
+
             if len(faces) > self.n_clusters:
                 with open(pickle_name, 'w+') as handle:
                     pickle.dump((faces, indices), handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -165,22 +159,13 @@ class FaceDB:
 
         @ret: ids: cluster identity assigned to each face_cluster
               face_clusters: dictionary of FaceCluster objects
-              faces: 
+              faces:
         '''
         if n_clusters is None:
             n_clusters = self.n_clusters
-        
-        # Step 1: Cluster all the new faces.
-        feature_vectors = np.array([face.features for face in faces])
-        clusters = defaultdict(list)
 
-        # TODO: More complicated clustering / combining clusters at this step.
-        cluster_results = _sklearn_clustering(feature_vectors,
-                        AgglomerativeClustering, n_clusters=n_clusters)
-        
-        # Convert it to dict format
-        for i, label in enumerate(cluster_results.labels_):
-            clusters[label].append(faces[i])
+        # Step 1: Cluster all the new faces.
+        clusters = self._cluster(faces, n_clusters)
 
         # Generate FaceCluster objects
         new_face_clusters = {}
@@ -199,15 +184,14 @@ class FaceDB:
                 face.cluster = name
 
         print('len of new face clusters = ', len(new_face_clusters))
-
         # Step 2: Merge the newly created clusters.
         new_face_clusters = self._merge_face_clusters(new_face_clusters)
         print('len of clusters after merging are: ', len(new_face_clusters))
 
         # Finish here if face_clusters was None
-        if face_clusters is None:
+        if face_clusters is None or len(face_clusters) == 0:
             ids = [face.cluster for face in faces]
-            return ids, new_face_clusters
+            return ids, new_face_clusters, faces
 
         # Step 3: Merge with the clusters that already existed (face_clusters)
         # If any of the new clusters don't merge, just add them to the
@@ -225,7 +209,10 @@ class FaceDB:
                 print('added new cluster to existing clusters!')
 
         print('final len of face clusters = ', len(face_clusters))
+        print('len of added clusters = ', len(added_clusters))
+
         ids = [face.cluster for face in faces]
+
         return ids, added_clusters, faces
 
     def _merge_face_clusters(self, face_clusters):
@@ -267,7 +254,7 @@ class FaceDB:
                 return True
 
         return False
-    
+
     def _score_cluster(self, faces):
         '''
         Simpler score measure, similar to pairwise_precision.
@@ -342,10 +329,6 @@ class FaceDB:
             print('score: ', score)
             scores.append((score, len(faces), cohesion))
 
-            if cohesion > 0.30 and score > 0.80:
-                img_name = 'cohesion_cluster_' + str(k) + '_' + self.db_name
-                save_cluster_image(faces, img_name)
-
             if score < self.good_cluster_score and self.cluster_analysis_verbosity >= 2:
                 print('---------------------------------------')
                 print('label is ', k)
@@ -354,11 +337,6 @@ class FaceDB:
                     unique_names[face.label] += 1
                 for k,v in unique_names.iteritems():
                     print('{} : {}'.format(k,v))
-
-            if score < 0.60 and self.save_bad_clusters:
-                # Let's save these in a nice view
-                img_name = 'bad_cluster_' + str(k) + '_' + self.db_name
-                save_cluster_image(faces, img_name)
 
         # sort according to the length of the clusters
         if self.cluster_analysis_verbosity == 2:
@@ -510,7 +488,7 @@ class FaceDB:
             print('num clusters = ', n_clusters,
                   "cohesion was ", cohesion)
 
-    def _cluster(self):
+    def _cluster(self, faces, n_clusters):
         '''
         Clusters the faces in self.faces.
 
@@ -520,53 +498,38 @@ class FaceDB:
         TODO: Reconcile different clustering algorithm results (?) -
         ensemble_clustering?
         '''
-        print('starting to cluster!')
-        print('cluster algs are: ', self.cluster_algs)
-        # k = self._find_best_k()
-        cluster_results = {}
-        # feature_vectors = [face.features for face in self.faces]
-        feature_vectors = [face.features for face in self.faces if not face.label in \
-                    self._exclude_labels]
-        labeled_faces = [face for face in self.faces if not face.label in \
-                    self._exclude_labels]
+        # TODO: More complicated clustering / combining clusters at this step.
+        features = [face.features for face in faces]
 
-        assert len(feature_vectors) == len(labeled_faces), 'check'
-        assert (labeled_faces[0].features == feature_vectors[0]).all(),\
-                'features test'
+        if self.same_frame_penalty:
+            D = np.zeros((len(features), len(features)))
+            for i in range(len(features)):
+                for j in range(len(features)):
+                    if j < i or j == i:
+                        continue
+                    # Adding a penalty if they both had the same frame
+                    if faces[i].frame == faces[j].frame:
+                        dist = np.linalg.norm(features[i] - features[j])+1000
+                    else:
+                        dist = np.linalg.norm(features[i] - features[j])
 
-        print('ignored faces = ', len(self.faces) - len(feature_vectors))
-        feature_vectors = np.array(feature_vectors)
-        
-        if len(feature_vectors) < 5:
-            return
+                    D[i,j] = dist
+                    D[j,i] = dist
 
-        for alg in self.cluster_algs:
-            if alg == 'AP':
-                cluster_results['AP'] = _sklearn_clustering(feature_vectors,
-                    AffinityPropagation, damping=0.5)
-            elif alg == 'AC':
-                cluster_results['AC'] = _sklearn_clustering(feature_vectors,
-                    AgglomerativeClustering, n_clusters=self.n_clusters)
+            cluster_results = _sklearn_clustering(D,
+                            AgglomerativeClustering, n_clusters=n_clusters,
+                            affinity='precomputed', linkage='average')
 
-            elif alg == 'RO':
-                rank_order = Rank_Order(feature_vectors,
-                        num_neighbors=50, alg_type='approx')
+        else:
+            cluster_results = _sklearn_clustering(features,
+                            AgglomerativeClustering, n_clusters=n_clusters)
 
-                D = rank_order.compute_all_distances()
-                cluster_results['RO'] = _sklearn_clustering(D, AgglomerativeClustering,
-                        n_clusters=self.n_clusters, affinity='precomputed',
-                        linkage='complete')
+        clusters = defaultdict(list)
+        # Convert it to dict format
+        for i, label in enumerate(cluster_results.labels_):
+            clusters[label].append(faces[i])
 
-        for alg in cluster_results:
-            for i, cluster in enumerate(cluster_results[alg].labels_):
-                # self.faces[i].cluster = cluster
-                # self.clusters[alg][cluster].append(self.faces[i])
-                labeled_faces[i].cluster = cluster
-                self.clusters[alg][cluster].append(labeled_faces[i])
-
-        if self.svm_merge:
-            self._merge_clusters()
-
+        return clusters
 
     def _get_negative_features(self, num):
         '''

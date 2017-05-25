@@ -4,7 +4,8 @@ from sklearn.svm import NuSVC, SVC, LinearSVC
 
 class Face():
 
-    def __init__(self, img_path=None, video_id = None, label = None, features=None):
+    def __init__(self, img_path=None, video_id = None, label = None,
+            features=None, frame=None):
         '''
         Contains basic information about the face.
 
@@ -33,6 +34,7 @@ class Face():
         # face to a different cluster, but here we only want to store the final
         # assignment after whatever algorithms we use to determine the cluster.
         self.cluster = None
+        self.frame = frame
 
 class FaceCluster():
 
@@ -47,7 +49,6 @@ class FaceCluster():
         self.faces = faces
 
         # We will train an svm on the objects of this cluster
-        self.svm = None
         self.merge_threshold = merge_threshold
         if svm is not None:
             self.svm = pickle.loads(svm)
@@ -75,8 +76,7 @@ class FaceCluster():
     def merge(self, cluster):
         '''
         Eats up cluster into new cluster.
-        Also, updates face.cluster for each of the faces in the cluster we are
-        merging.
+        Also, updates face.cluster for each of the faces in the cluster we are merging.
         '''
         for face in cluster.faces:
             face.cluster = self.name
