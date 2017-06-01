@@ -143,7 +143,13 @@ class FaceDB:
                 print("There were only {} faces in add detected faces".format(len(faces)))
                 return ([], {}, []), []
 
-        return self._add_faces(faces, face_clusters), indices
+        ids, added_clusters, faces = self._add_faces(faces, face_clusters)
+
+        for _, cluster in added_clusters.iteritems():
+            features = [f.features for f in cluster.faces]
+            cluster.cohesion_score = self._cluster_cohesion(features)
+
+        return (ids, added_clusters, faces), indices
 
     def _add_faces(self, faces, face_clusters=None, n_clusters=None):
         '''
@@ -196,8 +202,9 @@ class FaceDB:
         # Step 3: Merge with the clusters that already existed (face_clusters)
         # If any of the new clusters don't merge, just add them to the
         # face_clusters list.
-        print('Step 3')
+        print('****************Step 3**********************')
         print('orig len of face_clusters: ', len(face_clusters))
+        print('****************Step 3**********************')
         added_clusters = {}
         for name, cluster in new_face_clusters.iteritems():
             if not self._try_merge_cluster(cluster, face_clusters):
@@ -307,7 +314,6 @@ class FaceDB:
         # thresholds to better choose clusters.
         scores = []
         for k, faces in clusters.iteritems():
-
             if len(faces) < self.min_cluster_size:
                 continue
 
@@ -324,7 +330,7 @@ class FaceDB:
 
             features = [face.features for face in faces]
             print('num faces: ', len(faces))
-            cohesion = self._cluster_cohesion(features, total_faces)
+            cohesion = self._cluster_cohesion(features)
             print('cohesion : ', cohesion)
             print('score: ', score)
             scores.append((score, len(faces), cohesion))
@@ -349,7 +355,7 @@ class FaceDB:
 
             print('average score = ', float(total)/len(scores))
 
-    def _cluster_cohesion(self, features, total_features):
+    def _cluster_cohesion(self, features):
         '''
         cluster is a list of features.
         '''
@@ -361,7 +367,6 @@ class FaceDB:
 
         # TODO: Does this normalization make sense?
         return float(sum) / len(features)
-        # return float(sum) * (float(len(features)) / total_features)
 
     def _f_score(self, clusters):
         '''
@@ -523,6 +528,8 @@ class FaceDB:
         else:
             cluster_results = _sklearn_clustering(features,
                             AgglomerativeClustering, n_clusters=n_clusters)
+            # cluster_results = _sklearn_clustering(features,
+                            # AffinityPropagation)
 
         clusters = defaultdict(list)
         # Convert it to dict format

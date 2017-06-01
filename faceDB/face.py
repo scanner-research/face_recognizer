@@ -58,7 +58,7 @@ class FaceCluster():
 
         # Add cohesion to the clusters so we can iterate in the correct order
         # or drop clusters etc.
-        self.cohesion_score = None
+        self.cohesion_score = 0
 
     # TODO: Helper methods to train the svm etc.
     def check_merge(self, cluster):
