@@ -12,9 +12,9 @@ def load_imgs(img_directory):
     
     return imgs
 
-model_dir= '/usr/src/app/deps/openface/models'
+model_dir= '/Users/parimarjann/openface/models'
 
-faceDB = FaceDB(open_face_model_dir=model_dir,num_clusters=10)
+faceDB = FaceDB(open_face_model_dir=model_dir,num_clusters=10, cuda=True)
 
 # Part 1: Add negative images
 # For the svm-merge step to be useful at all, we need a bunch of negative
@@ -35,7 +35,7 @@ faceDB.add_negative_features(negative_imgs)
 #   c. frames:  (faceDB.add_frames)
 # All of these return: [ids], clusters = {} 
 
-imgs  = load_imgs('./data/lfw')
+imgs = load_imgs('./data/lfw')
 
 # I will simulate icrementally adding multiple videos by treating each 250
 # image chunk in imgs as a new video.
@@ -43,7 +43,10 @@ imgs  = load_imgs('./data/lfw')
 clusters = None
 for i in range(1):
     imgs_to_add = imgs[i:i+250]
-    faceDB.add_detected_faces('test_vid', imgs_to_add,clusters)
+    # Temporary solution. Actually should be the correct frame numbers for each
+    # face. 
+    frame_numbers = range(250)         
+    faceDB.add_detected_faces('test_vid', imgs_to_add, frame_numbers, clusters)
 
 if clusters is not None:
     print('final len of clusters = ', len(clusters))

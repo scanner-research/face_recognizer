@@ -17,7 +17,8 @@ def _css_to_rect(css):
 
 class OpenFaceHelper():
 
-    def __init__(self, model_dir, torch_model='nn4.small2.v1.t7', args=None):
+    def __init__(self, model_dir, torch_model='nn4.small2.v1.t7', args=None,
+            cuda=True):
         '''
         All defaul values.
         TODO: Might want to experiment with these later.
@@ -32,8 +33,9 @@ class OpenFaceHelper():
         network_model = os.path.join(openfaceModelDir, torch_model)
         self.align = openface.AlignDlib(os.path.join(dlibModelDir,
             "shape_predictor_68_face_landmarks.dat"))
-
-        self.net = openface.TorchNeuralNet(network_model, self.img_dim, cuda=True)
+        
+        self.net = openface.TorchNeuralNet(network_model,
+                self.img_dim,cuda=cuda)
 
         self.images = []
         self.image_names = []

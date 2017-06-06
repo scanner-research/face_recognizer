@@ -37,7 +37,7 @@ class FaceDB:
 
     def __init__(self, feature_extractor = 'openface', open_face_model_dir=None,
             db_name='test', num_clusters=20, merge_threshold=1.0,
-            same_frame_penalty=False, verbose=True):
+            same_frame_penalty=False, verbose=True, cuda=True):
         '''
         Specify parameters here.
         '''
@@ -59,7 +59,7 @@ class FaceDB:
         if feature_extractor == 'openface':
             assert open_face_model_dir is not None, 'specify open face model dir'
             self.open_face = OpenFaceHelper(model_dir=open_face_model_dir,
-                            torch_model=self.torch_model)
+                            torch_model=self.torch_model, cuda=cuda)
         else:
             assert False, 'Only using open face feature extractor'
 
@@ -76,7 +76,6 @@ class FaceDB:
         else:
             self.negative_features = []
             for img_path in detected_face_paths:
-                print(img_path)
                 try:
                     features = self.open_face.get_rep(img_path)
                 except Exception as e:
@@ -115,10 +114,14 @@ class FaceDB:
         '''
         assert False, 'not implemented yet'
 
-    def add_detected_faces(self, video_id, detected_face_paths, frames, face_clusters=None):
+    def add_detected_faces(self, video_id, detected_face_paths,
+            frame_numbers=None, face_clusters=None):
         '''
         @detected_faces: img paths of detected faces.
         '''
+        if frame_numbers is None:
+            frame_numbers = [None for f in faces]
+         
         faces = []
         indices = []
         pickle_name = self._get_paths_pickle_name(detected_face_paths)
@@ -128,7 +131,7 @@ class FaceDB:
                 print("successfully loaded pickle file!", pickle_name)
         else:
             for i, path in enumerate(detected_face_paths):
-                face = Face(img_path=path, video_id=video_id, frame=frames[i])
+                face = Face(img_path=path, video_id=video_id,frame=frame_numbers[i])
                 if self._extract_features(face):
                     faces.append(face)
                     indices.append(i)
@@ -512,8 +515,9 @@ class FaceDB:
                 for j in range(len(features)):
                     if j < i or j == i:
                         continue
-                    # Adding a penalty if they both had the same frame
-                    if faces[i].frame == faces[j].frame:
+
+                    # Adding a penalty if they both had the same frame.
+                    if faces[i].frame is not None and faces[i].frame == faces[j].frame:
                         dist = np.linalg.norm(features[i] - features[j])+1000
                     else:
                         dist = np.linalg.norm(features[i] - features[j])
