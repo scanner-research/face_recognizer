@@ -63,7 +63,7 @@ class FaceDB:
         else:
             assert False, 'Only using open face feature extractor'
 
-    def add_negative_features(self, detected_face_paths):
+    def add_negative_faces(self, detected_face_paths):
         '''
         @detected_faces: img paths of cropped faces
         '''
@@ -90,20 +90,29 @@ class FaceDB:
         print('added {} negative \
         features'.format(len(self.negative_features)))
 
+    def add_negative_features(self, features):
+        '''
+        @detected_faces: img paths of cropped faces
+        '''
+        # features have already been extracted so just save
+        # self.negative_features. No need to run the feature extraction
+        # step after
+        self.negative_features = features
+        
     def _get_paths_pickle_name(self, paths):
 
         hashed_name = hashlib.sha1(str(paths)).hexdigest()
         return './pickle/' + hashed_name[0:5] + '.pickle'
 
-    def add_features(self, video_id, features, face_clusters=None):
+    def add_features(self, video_id, all_features, face_clusters=None):
         '''
         I prefer this method less because we won't have access to image paths -
         so can't make cluster images etc.
         @features: array of features.
         '''
         faces = []
-        for feature in features:
-            face = Face(features=features, video_id=video_id)
+        for feature in all_features:
+            face = Face(features=feature, video_id=video_id)
             faces.append(face)
 
         return self._add_faces(faces, face_clusters)
@@ -213,6 +222,7 @@ class FaceDB:
             if not self._try_merge_cluster(cluster, face_clusters):
                 # Add cluster as a new cluster in face_clusters
                 # FIXME: Deal with same images being added multiple times.
+                print(name)
                 assert not name in face_clusters, 'should not be possible'
                 face_clusters[name] = cluster
                 added_clusters[name] = cluster

@@ -117,3 +117,12 @@ def mkdir_p(path):
             pass
         else: raise
 
+def load_imgs(img_directory):        
+    imgs = []
+    for root, subdirs, files in os.walk(img_directory):
+        for file in files:
+            if os.path.splitext(file)[1].lower() in ('.jpg', '.jpeg'):
+                 imgs.append(os.path.join(root, file))
+    
+    return imgs
+
